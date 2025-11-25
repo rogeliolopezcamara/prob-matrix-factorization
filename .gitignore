@@ -12,3 +12,6 @@ env/
 # Data
 data/raw/
 data/processed/
+
+# Ignore PDFs
+*.pdf

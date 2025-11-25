@@ -1,4 +1,4 @@
-# src/models/gaussian_mf_cavi.py
+# src/models/gaussian_mf_cavi_bias.py
 
 import numpy as np
 from dataclasses import dataclass

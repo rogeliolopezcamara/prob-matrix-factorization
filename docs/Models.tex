@@ -1,0 +1,574 @@
+\documentclass[12pt]{article}
+
+% ---------------------------
+% Packages
+% ---------------------------
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb, amsthm} % For math symbols
+\usepackage{bm} % For bold math
+\usepackage{graphicx} % For images
+\usepackage{enumitem} % For custom lists
+\usepackage{hyperref} % For links
+\usepackage{geometry} % Better margins
+\geometry{margin=1in}
+\usepackage{float}
+
+\usepackage{tikz}
+\usetikzlibrary{bayesnet,positioning,calc,fit}
+\tikzset{
+  fixed/.style={circle, fill=black, inner sep=1.4pt, minimum size=2pt},
+}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% ---------------------------
+% Title
+% ---------------------------
+\title{STCS 6701: Probabilistic Machine Learning \\ Project}
+%\author{Rogelio Lopez Camara\\ rl3499}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+% ============================================================
+% 1. GAUSSIAN MATRIX FACTORIZATION (NO BIASES)
+% ============================================================
+
+\section{Gaussian Matrix Factorization with Mean-field Variational Inference}
+
+\subsection{Model Definition}
+
+We consider a standard Gaussian matrix factorization model.
+Let $U$ be the number of users, $M$ the number of items, and $K$ the latent dimension.
+For each centered observation $x_{ij}$ we assume
+\[
+x_{ij} \mid \theta_i, \beta_j \sim \mathcal{N}(\theta_i^\top \beta_j, \sigma^2),
+\]
+where user and item latent vectors follow independent isotropic Gaussian priors:
+\[
+\theta_i \sim \mathcal{N}(0,\eta_\theta^2 I_K),
+\qquad
+\beta_j \sim \mathcal{N}(0,\eta_\beta^2 I_K).
+\]
+
+We denote by
+\[
+\Omega_i = \{ j : (i,j)\ \text{is observed} \}, 
+\qquad
+\Omega^j = \{ i : (i,j)\ \text{is observed} \}.
+\]
+
+\subsection{Complete Conditionals}
+
+Since the model is conjugate, all conditional distributions remain Gaussian.
+
+\subsubsection{Conditional for the user factor $\theta_i$}
+
+The relevant terms in the joint distribution are
+\[
+p(\theta_i)\prod_{j \in \Omega_i} p(x_{ij} \mid \theta_i,\beta_j),
+\]
+leading to a Gaussian conditional with precision
+\[
+\Lambda_{\theta_i} = 
+\eta_\theta^{-2} I_K + \sigma^{-2} \sum_{j\in\Omega_i} \beta_j \beta_j^\top,
+\]
+and mean
+\[
+\mu_{\theta_i}
+=
+\Lambda_{\theta_i}^{-1}
+\left(
+\sigma^{-2} \sum_{j\in\Omega_i} x_{ij}\,\beta_j
+\right).
+\]
+
+\subsubsection{Conditional for the item factor $\beta_j$}
+
+By symmetry:
+\[
+\Lambda_{\beta_j}
+=
+\eta_\beta^{-2} I_K + \sigma^{-2} \sum_{i\in\Omega^j} \theta_i \theta_i^\top,
+\]
+\[
+\mu_{\beta_j}
+=
+\Lambda_{\beta_j}^{-1}
+\left(
+\sigma^{-2} \sum_{i\in\Omega^j} x_{ij}\,\theta_i
+\right).
+\]
+
+\subsection{Variational Family and CAVI Updates}
+
+We assume a fully factorized Gaussian approximation:
+\[
+q(\theta,\beta) = 
+\prod_{i=1}^U \mathcal{N}(\theta_i \mid m_{\theta_i},V_{\theta_i}) 
+\prod_{j=1}^M \mathcal{N}(\beta_j \mid m_{\beta_j},V_{\beta_j}).
+\]
+
+The expectations required for CAVI updates are
+\[
+\mathbb{E}_q[\beta_j] = m_{\beta_j},
+\qquad
+\mathbb{E}_q[\beta_j \beta_j^\top]
+= V_{\beta_j} + m_{\beta_j} m_{\beta_j}^\top,
+\]
+and similarly for $\theta_i$.
+
+Define summary matrices:
+\[
+S_i = \sum_{j\in\Omega_i}
+\left(
+V_{\beta_j} + m_{\beta_j} m_{\beta_j}^\top
+\right),
+\qquad
+T_j = \sum_{i\in\Omega^j}
+\left(
+V_{\theta_i} + m_{\theta_i} m_{\theta_i}^\top
+\right).
+\]
+
+\subsubsection{CAVI updates for user factors}
+
+\[
+V_{\theta_i}
+=
+\left(
+\eta_\theta^{-2} I_K + \sigma^{-2} S_i
+\right)^{-1},
+\qquad
+m_{\theta_i}
+=
+V_{\theta_i}
+\left(
+\sigma^{-2}\sum_{j\in\Omega_i} x_{ij} m_{\beta_j}
+\right).
+\]
+
+\subsubsection{CAVI updates for item factors}
+
+\[
+V_{\beta_j}
+=
+\left(
+\eta_\beta^{-2} I_K + \sigma^{-2} T_j
+\right)^{-1},
+\qquad
+m_{\beta_j}
+=
+V_{\beta_j}
+\left(
+\sigma^{-2}\sum_{i\in\Omega^j} x_{ij} m_{\theta_i}
+\right).
+\]
+
+\subsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{CAVI for Gaussian Matrix Factorization}
+\begin{algorithmic}[1]
+\STATE Initialize all variational means and covariances.
+\FOR{iteration $t=1,\dots,T_{\max}$}
+    \FOR{each user $i$}
+        \STATE Compute $S_i$.
+        \STATE Update $V_{\theta_i}$ and $m_{\theta_i}$.
+    \ENDFOR
+    \FOR{each item $j$}
+        \STATE Compute $T_j$.
+        \STATE Update $V_{\beta_j}$ and $m_{\beta_j}$.
+    \ENDFOR
+    \STATE Optionally compute validation RMSE.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+
+
+% ============================================================
+% 2. GAUSSIAN MF WITH USER AND ITEM BIASES
+% ============================================================
+
+\section{Gaussian Matrix Factorization with User and Item Biases}
+
+\subsection{Model Definition}
+
+We now extend the previous model by introducing user and item biases.
+For each centered rating $x_{ij}$ we assume
+\[
+x_{ij} \mid \theta_i, \beta_j, b_i, b_j 
+\sim \mathcal{N}( b_i + b_j + \theta_i^\top \beta_j , \sigma^2 ).
+\]
+
+Latent factors keep the same priors as before:
+\[
+\theta_i \sim \mathcal{N}(0,\eta_\theta^2 I_K),\qquad
+\beta_j \sim \mathcal{N}(0,\eta_\beta^2 I_K),
+\]
+and biases follow
+\[
+b_i \sim \mathcal{N}(0,\eta_b^2),
+\qquad
+b_j \sim \mathcal{N}(0,\eta_b^2).
+\]
+
+We use the same observation index sets $\Omega_i$ and $\Omega^j$ as in the previous section.
+
+\subsection{Complete Conditionals}
+
+\subsubsection{Conditional for the user factor $\theta_i$}
+
+The Gaussian conditional is
+\[
+\Lambda_{\theta_i}
+=
+\eta_\theta^{-2} I_K
++
+\sigma^{-2}\sum_{j\in\Omega_i}\beta_j \beta_j^\top,
+\]
+\[
+\mu_{\theta_i}
+=
+\Lambda_{\theta_i}^{-1}
+\left(
+\sigma^{-2}\sum_{j\in\Omega_i}(x_{ij}-b_i-b_j)\beta_j
+\right).
+\]
+
+\subsubsection{Conditional for the item factor $\beta_j$}
+
+\[
+\Lambda_{\beta_j}
+=
+\eta_\beta^{-2}I_K
++
+\sigma^{-2}\sum_{i\in\Omega^j}\theta_i\theta_i^\top,
+\]
+\[
+\mu_{\beta_j}
+=
+\Lambda_{\beta_j}^{-1}
+\left(
+\sigma^{-2}\sum_{i\in\Omega^j}(x_{ij}-b_i-b_j)\theta_i
+\right).
+\]
+
+\subsubsection{Conditional for the user bias $b_i$}
+
+\[
+\sigma^{-2}_{b_i}
+=
+\eta_b^{-2} + \frac{|\Omega_i|}{\sigma^2},
+\qquad
+\mu_{b_i}
+=
+\sigma^2_{b_i}
+\left(
+\frac{1}{\sigma^2}
+\sum_{j\in\Omega_i}(x_{ij}-b_j-\theta_i^\top\beta_j)
+\right).
+\]
+
+\subsubsection{Conditional for the item bias $b_j$}
+
+\[
+\sigma^{-2}_{b_j}
+=
+\eta_b^{-2} + \frac{|\Omega^j|}{\sigma^2},
+\qquad
+\mu_{b_j}
+=
+\sigma^2_{b_j}
+\left(
+\frac{1}{\sigma^2}
+\sum_{i\in\Omega^j}(x_{ij}-b_i-\theta_i^\top\beta_j)
+\right).
+\]
+
+\subsection{Variational Family and CAVI Updates}
+
+We adopt the factorization
+\[
+q = 
+\prod_{i=1}^U q(\theta_i) q(b_i)
+\prod_{j=1}^M q(\beta_j) q(b_j).
+\]
+
+Expectations for latent vectors are identical to the previous model.  
+The bias expectations are simply their variational means:
+\[
+\mathbb{E}_q[b_i] = m_{b_i}, \qquad
+\mathbb{E}_q[b_j] = m_{b_j}.
+\]
+
+Define the same summary matrices $S_i$ and $T_j$ as in the previous model.
+
+\subsubsection{CAVI updates for user factors}
+
+\[
+V_{\theta_i}
+=
+(\eta_\theta^{-2}I_K + \sigma^{-2} S_i)^{-1},
+\qquad
+m_{\theta_i}
+=
+V_{\theta_i}
+\left(
+\sigma^{-2}\sum_{j\in\Omega_i}(x_{ij}-m_{b_i}-m_{b_j})m_{\beta_j}
+\right).
+\]
+
+\subsubsection{CAVI updates for item factors}
+
+\[
+V_{\beta_j}
+=
+(\eta_\beta^{-2}I_K + \sigma^{-2}T_j)^{-1},
+\qquad
+m_{\beta_j}
+=
+V_{\beta_j}
+\left(
+\sigma^{-2}\sum_{i\in\Omega^j}(x_{ij}-m_{b_i}-m_{b_j})m_{\theta_i}
+\right).
+\]
+
+\subsubsection{CAVI updates for user biases}
+
+\[
+\sigma^{-2}_{b_i}
+=
+\eta_b^{-2} + \frac{|\Omega_i|}{\sigma^2},
+\qquad
+m_{b_i}
+=
+\sigma^2_{b_i}
+\left(
+\frac{1}{\sigma^2}
+\sum_{j\in\Omega_i}(x_{ij}-m_{b_j}-m_{\theta_i}^\top m_{\beta_j})
+\right).
+\]
+
+\subsubsection{CAVI updates for item biases}
+
+\[
+\sigma^{-2}_{b_j}
+=
+\eta_b^{-2} + \frac{|\Omega^j|}{\sigma^2},
+\qquad
+m_{b_j}
+=
+\sigma^2_{b_j}
+\left(
+\frac{1}{\sigma^2}
+\sum_{i\in\Omega^j}(x_{ij}-m_{b_i}-m_{\theta_i}^\top m_{\beta_j})
+\right).
+\]
+
+\subsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{CAVI for Gaussian MF with User and Item Biases}
+\begin{algorithmic}[1]
+\STATE Initialize all variational parameters.
+\FOR{iteration $t=1,\dots,T_{\max}$}
+    \FOR{each user $i$}
+        \STATE Update $m_{\theta_i}$ and $V_{\theta_i}$.
+    \ENDFOR
+    \FOR{each item $j$}
+        \STATE Update $m_{\beta_j}$ and $V_{\beta_j}$.
+    \ENDFOR
+    \FOR{each user $i$}
+        \STATE Update $m_{b_i}$.
+    \ENDFOR
+    \FOR{each item $j$}
+        \STATE Update $m_{b_j}$.
+    \ENDFOR
+    \STATE Optionally evaluate validation performance.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+% ============================================================
+% 3. POISSON MATRIX FACTORIZATION (PMF)
+% ============================================================
+
+\section{Poisson Matrix Factorization}
+
+\subsection{Model Definition}
+
+We now consider a non-Gaussian model suitable for sparse, non-negative observations such as implicit feedback or count data.  
+Given $U$ users, $M$ items, and latent dimension $K$, each observed entry $x_{ij} \ge 0$ is modeled as
+\[
+x_{ij} \mid \theta_i, \beta_j \sim \text{Poisson}(\theta_i^\top \beta_j).
+\]
+
+We place independent Gamma priors over all latent factors:
+\[
+\theta_{ik} \sim \text{Gamma}(a_0, b_0), \qquad
+\beta_{jk} \sim \text{Gamma}(a_0, b_0),
+\]
+where the Gamma distribution is parameterized by shape $a$ and rate $b$, so that  
+$\mathbb{E}[\theta_{ik}] = a_{\theta,ik} / b_{\theta,ik}$.
+
+As before, we use the index sets
+\[
+\Omega_i = \{ j : (i,j)\ \text{observed} \},
+\qquad
+\Omega^j = \{ i : (i,j)\ \text{observed} \}.
+\]
+
+\subsection{Variational Family}
+
+Under the mean-field assumption, the variational distribution factorizes as
+\[
+q =
+\prod_{i=1}^U \prod_{k=1}^K q(\theta_{ik})
+\prod_{j=1}^M \prod_{k=1}^K q(\beta_{jk}),
+\]
+with each factor being a Gamma distribution:
+\[
+q(\theta_{ik}) = \text{Gamma}(a_{\theta,ik}, b_{\theta,ik}),
+\qquad
+q(\beta_{jk}) = \text{Gamma}(a_{\beta,jk}, b_{\beta,jk}).
+\]
+
+Expectations needed for CAVI are simply
+\[
+\mathbb{E}_q[\theta_{ik}] = \frac{a_{\theta,ik}}{b_{\theta,ik}}, \qquad
+\mathbb{E}_q[\beta_{jk}] = \frac{a_{\beta,jk}}{b_{\beta,jk}}.
+\]
+
+\subsection{Complete Conditionals}
+
+Unlike the Gaussian MF case, the Poisson likelihood is not conjugate to a gamma distribution unless we introduce latent allocation variables. However, the standard collapsed CAVI updates for Poisson MF exploit the identity
+\[
+x_{ij} = \sum_{k=1}^K x_{ijk},
+\qquad
+x_{ijk} \mid \theta_i, \beta_j \sim \text{Poisson}(\theta_{ik}\beta_{jk}),
+\]
+together with the conditional expectation
+\[
+\mathbb{E}[x_{ijk} \mid x_{ij},\theta_i,\beta_j]
+=
+x_{ij}\;
+\frac{\theta_{ik}\beta_{jk}}
+{\sum_{\ell=1}^K \theta_{i\ell}\beta_{j\ell}}.
+\]
+
+Taking expectations under the current variational distribution yields
+\[
+\mathbb{E}_q[x_{ijk}]
+=
+x_{ij}
+\frac{\mathbb{E}_q[\theta_{ik}]\,\mathbb{E}_q[\beta_{jk}]}
+{\sum_{\ell=1}^K 
+\mathbb{E}_q[\theta_{i\ell}]\,\mathbb{E}_q[\beta_{j\ell}] }.
+\]
+
+Plugging these into the Gamma–Poisson conjugacy, the complete conditionals are
+\[
+a_{\theta,ik}^{\text{new}}
+=
+a_0 + \sum_{j\in\Omega_i} \mathbb{E}_q[x_{ijk}],
+\qquad
+b_{\theta,ik}^{\text{new}}
+=
+b_0 + \sum_{j\in\Omega_i} \mathbb{E}_q[\beta_{jk}],
+\]
+\[
+a_{\beta,jk}^{\text{new}}
+=
+a_0 + \sum_{i\in\Omega^j} \mathbb{E}_q[x_{ijk}],
+\qquad
+b_{\beta,jk}^{\text{new}}
+=
+b_0 + \sum_{i\in\Omega^j} \mathbb{E}_q[\theta_{ik}].
+\]
+
+\subsection{CAVI Updates}
+
+Let
+\[
+E_{\theta,ik} = \mathbb{E}_q[\theta_{ik}],\qquad
+E_{\beta,jk} = \mathbb{E}_q[\beta_{jk}].
+\]
+
+For each observed $(i,j)$, define the variational rate estimate
+\[
+\lambda_{ij}
+=
+\sum_{k=1}^K E_{\theta,ik} E_{\beta,jk}.
+\]
+
+Then the expected factor allocation is
+\[
+\zeta_{ijk}
+=
+x_{ij}
+\frac{E_{\theta,ik} E_{\beta,jk}}
+{\lambda_{ij}},
+\qquad
+\text{for } k = 1,\dots,K.
+\]
+
+\subsubsection{Updates for user factors}
+
+\[
+a_{\theta,ik}^{\text{new}}
+=
+a_0 + \sum_{j\in\Omega_i} \zeta_{ijk},
+\qquad
+b_{\theta,ik}^{\text{new}}
+=
+b_0 + \sum_{j\in\Omega_i} E_{\beta,jk}.
+\]
+
+\subsubsection{Updates for item factors}
+
+\[
+a_{\beta,jk}^{\text{new}}
+=
+a_0 + \sum_{i\in\Omega^j} \zeta_{ijk},
+\qquad
+b_{\beta,jk}^{\text{new}}
+=
+b_0 + \sum_{i\in\Omega^j} E_{\theta,ik}.
+\]
+
+After each update, expectations are recomputed as
+\[
+E_{\theta,ik} = \frac{a_{\theta,ik}}{b_{\theta,ik}},
+\qquad
+E_{\beta,jk} = \frac{a_{\beta,jk}}{b_{\beta,jk}}.
+\]
+
+\subsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{CAVI for Poisson Matrix Factorization}
+\begin{algorithmic}[1]
+\STATE Initialize Gamma variational parameters $(a_{\theta},b_{\theta})$, $(a_{\beta},b_{\beta})$.
+\FOR{iteration $t=1,\dots,T_{\max}$}
+    \STATE Compute expectations $E_{\theta}$ and $E_{\beta}$.
+    \FOR{each user $i$}
+        \FOR{each observed item $j\in\Omega_i$}
+            \STATE Compute $\lambda_{ij} = \sum_k E_{\theta,ik} E_{\beta,jk}$.
+            \STATE Compute allocation $\zeta_{ijk} = x_{ij}(E_{\theta,ik}E_{\beta,jk})/\lambda_{ij}$.
+        \ENDFOR
+        \STATE Update $a_{\theta,i}$ and $b_{\theta,i}$.
+    \ENDFOR
+    \FOR{each item $j$}
+        \STATE Update $a_{\beta,j}$ and $b_{\beta,j}$ analogously.
+    \ENDFOR
+    \STATE Optionally evaluate validation RMSE.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+
+\end{document}
