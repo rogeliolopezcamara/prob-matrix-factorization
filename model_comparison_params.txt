@@ -1,0 +1,12 @@
+=== Gaussian MF (CAVI) ===
+{'n_factors': 20, 'sigma2': 1.0, 'eta_theta2': 0.1, 'eta_beta2': 0.1, 'eta_bias2': 0.1, 'max_iter': 100, 'tol': 1e-08, 'random_state': 42, 'verbose': True}
+
+=== Poisson MF (CAVI) ===
+{'n_factors': 50, 'a0': 0.3, 'b0': 1.0, 'max_iter': 20, 'tol': 0.0001, 'random_state': 42, 'verbose': True}
+
+=== HPF (CAVI) ===
+{'n_factors': 20, 'a': 0.3, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 0.3, 'c_prime': 1.0, 'd_prime': 1.0, 'max_iter': 100, 'tol': 0.0001, 'random_state': 42, 'verbose': True}
+
+=== HPF (PyTorch) ===
+{'n_factors': 20, 'a': 0.3, 'a_prime': 3.0, 'b_prime': 1.0, 'c': 0.3, 'c_prime': 3.0, 'd_prime': 1.0, 'lr': 0.001, 'batch_size': 1024, 'epochs': 50, 'device': 'cpu', 'verbose': True}
+

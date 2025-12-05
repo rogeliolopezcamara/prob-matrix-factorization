@@ -1,0 +1,21 @@
+Loading data...
+Reading: data/raw/interactions_train.csv
+Reading: data/raw/interactions_validation.csv
+Reading: data/raw/interactions_test.csv
+Shifting ratings by +1...
+Users: 25076, Items: 178265
+Config: HPF_PyTorch_Config(n_factors=20, a=0.3, a_prime=3.0, b_prime=1.0, c=0.3, c_prime=3.0, d_prime=1.0, lr=0.001, batch_size=1024, epochs=50, device='cpu', verbose=True)
+
+Starting Training...
+Epoch 1/50 | Loss: -4294.9301 | Val RMSE: 4.2714
+Epoch 2/50 | Loss: -5974.5840 | Val RMSE: 3.9817
+Epoch 3/50 | Loss: -7190.6867 | Val RMSE: 3.7302
+Epoch 4/50 | Loss: -8072.6977 | Val RMSE: 3.5104
+Epoch 5/50 | Loss: -8735.3840 | Val RMSE: 3.3168
+Epoch 6/50 | Loss: -9261.5823 | Val RMSE: 3.1447
+Epoch 7/50 | Loss: -9705.7772 | Val RMSE: 2.9906
+Epoch 8/50 | Loss: -10101.1358 | Val RMSE: 2.8519
+Epoch 9/50 | Loss: -10466.5241 | Val RMSE: 2.7264
+Epoch 10/50 | Loss: -10812.5403 | Val RMSE: 2.6128
+Epoch 11/50 | Loss: -11144.9974 | Val RMSE: 2.5096
+Epoch 12/50 | Loss: -11467.5975 | Val RMSE: 2.4165

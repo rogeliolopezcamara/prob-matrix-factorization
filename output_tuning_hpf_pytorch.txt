@@ -1,0 +1,15 @@
+Loading data...
+Reading: data/raw/interactions_train.csv
+Reading: data/raw/interactions_validation.csv
+Reading: data/raw/interactions_test.csv
+Total combinations to test: 16
+
+--- Run 1/16: {'n_factors': 20, 'lr': 0.001, 'a': 0.3, 'a_prime': 1.0} ---
+Result RMSE: 2.6216
+*** New Best RMSE: 2.6216 ***
+
+--- Run 2/16: {'n_factors': 20, 'lr': 0.001, 'a': 0.3, 'a_prime': 3.0} ---
+Result RMSE: 2.6163
+*** New Best RMSE: 2.6163 ***
+
+--- Run 3/16: {'n_factors': 20, 'lr': 0.001, 'a': 1.0, 'a_prime': 1.0} ---
