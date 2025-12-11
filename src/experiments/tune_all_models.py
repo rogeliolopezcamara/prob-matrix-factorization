@@ -16,11 +16,11 @@ from src.experiments.compare_models import run_gaussian_mf, run_poisson_mf, run_
 from src.evaluation.metrics import rmse
 import torch
 
+from src.data.load_data import load_all_splits
+
 def load_data():
-    print("Loading Data from data/processed...")
-    cols = ['u', 'i', 'rating']
-    train_df = pd.read_csv('data/processed/train.csv')[cols]
-    val_df = pd.read_csv('data/processed/val.csv')[cols]
+    print("Loading Data (using load_all_splits)...")
+    train_df, val_df, _ = load_all_splits()
     
     # Subsample for tuning speed (e.g., 50k rows for train, 10k for val)
     print("Subsampling for tuning speed...")

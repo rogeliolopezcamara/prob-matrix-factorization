@@ -10,19 +10,6 @@ from sklearn.manifold import TSNE
 import umap
 import ast
 
-def load_recipe_mappings():
-    """
-    Loads the mapping from internal index 'i' to recipe 'id' from PP_recipes.csv.
-    """
-    pp_file = "data/raw/PP_recipes.csv"
-    if not os.path.exists(pp_file):
-        raise FileNotFoundError(f"File not found: {pp_file}")
-    
-    # Read only necessary columns
-    df = pd.read_csv(pp_file, usecols=['id', 'i'])
-    # Create dictionary mapping i -> id
-    return df.set_index('i')['id'].to_dict()
-
 def load_recipe_tags():
     """
     Loads the mapping from recipe 'id' to 'tags' from RAW_recipes.csv.
@@ -33,40 +20,19 @@ def load_recipe_tags():
     
     # Read only necessary columns
     df = pd.read_csv(raw_file, usecols=['id', 'tags'])
-    # Create dictionary id -> tags (as list)
-    # Tags are stored as string representation of list, so we need to parse them later or now.
-    # Parsing 200k+ rows might be slow, let's just return the df or dict and parse on demand/batch.
     return df.set_index('id')['tags'].to_dict()
 
 def load_embeddings(model_dir):
     """
     Loads item embeddings from the specified model directory.
-    Handles files with or without headers/indices robustly.
+    Assumes item_embeddings.csv has 'recipe_id' as the first column/index.
     """
     params_file = os.path.join(model_dir, "item_embeddings.csv")
     if not os.path.exists(params_file):
         raise FileNotFoundError(f"Embeddings file not found: {params_file}")
     
-    # Check if first line looks like a header (0,1,2...) or data (float)
-    with open(params_file, 'r') as f:
-        first_line = f.readline().strip()
-        
-    parts = first_line.split(',')
-    has_header = False
-    try:
-        # If first few tokens are integers 0, 1, it's likely a generated header
-        if parts[0] == "0" and parts[1] == "1":
-            has_header = True
-    except:
-        pass
-        
-    if has_header:
-        # Header exists, so we let pandas infer it (usually row 0)
-        # We do NOT use index_col=0 because the header implies column names, not index at col 0
-        df = pd.read_csv(params_file)
-    else:
-        # No header, assume data starts at row 0
-        df = pd.read_csv(params_file, header=None)
+    # Load with index_col=0 assuming recipe_id is the first column
+    df = pd.read_csv(params_file, index_col=0)
         
     return df
 
@@ -123,23 +89,20 @@ def plot_grid(df_reduced, method, model_name, output_dir, hue_labels=None):
     Creates a pairplot (square matrix grid) and saves it.
     """
     # Create the matrix plot
-    # PairGrid or pairplot from seaborn is perfect for "matrix cuadrada con nxn plots"
-    # "En cada cuadrante vas a hacer un plot de todas los itemes donde se plote una dimensión contra la otra."
     
     # Prepare dataframe for plotting
     plot_df = df_reduced.copy()
     
     # If we have labels, add them to the dataframe
     if hue_labels is not None:
-        # Align using index (which corresponds to reset index in main)
-        # This handles subsampling correctly because df_reduced has index subset
+        # Align using index 
+        # hue_labels should be a Series indexed by recipe_id, same as plot_df
         plot_df['Category'] = hue_labels.loc[plot_df.index]
         
     plt.figure(figsize=(20, 20))
     
     # Use PairGrid
     g = sns.PairGrid(plot_df, hue='Category' if hue_labels is not None else None, corner=False)
-    # The user preferred the original style which had scatterplots on diagonal (implicit or map)
     g.map(sns.scatterplot, s=10, alpha=0.5)
     
     if hue_labels is not None:
@@ -167,7 +130,7 @@ def get_category(tags_str, target_tags):
     matched_tags = [t for t in tags if t in target_tags]
     
     if len(matched_tags) == 0:
-        return "Other" # Or "None" or whatever default
+        return "Other"
     elif len(matched_tags) == 1:
         return matched_tags[0]
     else:
@@ -191,32 +154,22 @@ def main():
     categories = None
     if args.tags:
         print(f"Tag filtering enabled: {args.tags}")
-        print("Loading recipe mappings...")
+        print("Loading recipe tags...")
         try:
-            i_to_id = load_recipe_mappings()
+            # i_to_id no longer needed as df.index IS recipe_id
             id_to_tags = load_recipe_tags()
             
-            # Map index (which is likely 'i') to tags
-            # We assume the index of df corresponds to 'i' in PP_recipes
-            # If df.index are 0,1,2..., check if they match 'i'
-            # The prompt says "utilizas la columna i que te dice el item correspondiente (empieza en 0)"
-            # So df.index should be 'i'.
-            
             cats = []
-            for i in df.index:
-                # df.index might be an integer or string depending on csv load. 
-                # Let's ensure integer access if possible or safe get
+            for recipe_id in df.index:
+                # df.index (recipe_id) should be integer based on previous checks
+                # but might be read as float if there were NaNs (which shouldn't happen with our mapping)
+                # Safeguard casting
                 try:
-                    i_val = int(i)
+                    rid = int(recipe_id)
                 except:
-                    i_val = i
+                    rid = recipe_id
                 
-                recipe_id = i_to_id.get(i_val)
-                if recipe_id is None:
-                    cats.append("Unknown")
-                    continue
-                
-                tags_str = id_to_tags.get(recipe_id)
+                tags_str = id_to_tags.get(rid)
                 if tags_str is None:
                     cats.append("Unknown")
                     continue
@@ -224,14 +177,16 @@ def main():
                 cat = get_category(tags_str, args.tags)
                 cats.append(cat)
             
-            # Pass as Series with index matching df (which we will reset)
-            categories = pd.Series(cats)
+            # Pass as Series with index matching df
+            categories = pd.Series(cats, index=df.index)
             
             # Show distribution
             print(f"Categorization complete. distribution:\n{categories.value_counts()}")
             
         except Exception as e:
             print(f"Error processing tags: {e}")
+            import traceback
+            traceback.print_exc()
             print("Proceeding without coloring.")
             categories = None
     

@@ -134,3 +134,6 @@ def load_all_splits_centered():
     test_c["rating"]  = test_c["rating"]  - global_mean
 
     return train_c, val_c, test_c, global_mean
+
+if __name__ == "__main__":
+    preprocess_data()

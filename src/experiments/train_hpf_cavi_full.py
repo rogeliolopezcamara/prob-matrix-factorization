@@ -4,16 +4,30 @@ import os
 import time
 from dataclasses import asdict
 
+from src.data.load_data import load_all_splits
+from src.experiments.compare_models import load_best_hyperparams
 from src.models.hpf_cavi import HPF_CAVI, HPF_CAVI_Config
+from src.utils.mapping import get_recipe_id_map
 
-def train_full_hpf_cavi():
-    print("=== Training Full HPF (CAVI) ===")
+import argparse
+
+def train_full_hpf_cavi(dataset_mode='train'):
+    print(f"=== Training Full HPF (CAVI) | Mode: {dataset_mode} ===")
     
     # 1. Load Data
-    data_path = 'data/processed/interactions_processed.csv'
-    print(f"Loading data from {data_path}...")
-    df = pd.read_csv(data_path)
-    df = df[['u', 'i', 'rating']]
+    print("Loading data using load_all_splits...")
+    train_df, val_df, test_df = load_all_splits()
+    
+    if dataset_mode == 'train':
+        df = train_df[['u', 'i', 'rating']]
+    elif dataset_mode == 'train+val':
+        print("Concatenating train and validation sets...")
+        df = pd.concat([train_df, val_df])[['u', 'i', 'rating']]
+    elif dataset_mode == 'full':
+        print("Concatenating train, validation, and test sets...")
+        df = pd.concat([train_df, val_df, test_df])[['u', 'i', 'rating']]
+    else:
+        raise ValueError(f"Invalid dataset_mode: {dataset_mode}. Choose from 'train', 'train+val', 'full'.")
     
     # Preprocessing: Shift Ratings by +1
     print("Shifting ratings by +1 for HPF...")
@@ -21,25 +35,33 @@ def train_full_hpf_cavi():
     df_shifted["rating"] += 1
     
     # 2. Configure Model (Best Params)
-    # {'n_factors': 50, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, ...}
-    config = HPF_CAVI_Config(
-        n_factors=50,
-        a=1.0,
-        a_prime=1.0,
-        b_prime=1.0,
-        c=1.0,
-        c_prime=1.0,
-        d_prime=1.0,
-        max_iter=100,
-        tol=1e-4,
-        random_state=42,
-        verbose=True
-    )
+    print("Loading best hyperparameters...")
+    hyperparams = load_best_hyperparams()
+    config_dict = hyperparams.get('HPF_CAVI', {})
+    
+    if config_dict:
+        print(f"Using loaded config: {config_dict}")
+        config = HPF_CAVI_Config(**config_dict)
+    else:
+        print("Using default config (fallback)")
+        config = HPF_CAVI_Config(
+            n_factors=50,
+            a=1.0,
+            a_prime=1.0,
+            b_prime=1.0,
+            c=1.0,
+            c_prime=1.0,
+            d_prime=1.0,
+            max_iter=100,
+            tol=1e-4,
+            random_state=42,
+            verbose=True
+        )
     
     model = HPF_CAVI(config)
     
     # 3. Train
-    print("Starting training on full dataset...")
+    print("Starting training...")
     start_time = time.time()
     model.fit(df_shifted)
     print(f"Training finished in {time.time() - start_time:.1f}s")
@@ -64,7 +86,21 @@ def train_full_hpf_cavi():
         item_emb = model.gamma_a_beta / model.gamma_b_beta
     
     pd.DataFrame(user_emb).to_csv(os.path.join(output_dir, 'user_embeddings.csv'), index=False)
-    pd.DataFrame(item_emb).to_csv(os.path.join(output_dir, 'item_embeddings.csv'), index=False)
+    
+    item_emb_df = pd.DataFrame(item_emb)
+    
+    # Load mapping
+    id_map = get_recipe_id_map()
+    if id_map is not None:
+        if len(id_map) > len(item_emb_df):
+            id_map = id_map[:len(item_emb_df)]
+        
+        if len(id_map) == len(item_emb_df):
+            item_emb_df.insert(0, 'recipe_id', id_map)
+        else:
+            print("Skipping recipe_id insertion due to size mismatch.")
+    
+    item_emb_df.to_csv(os.path.join(output_dir, 'item_embeddings.csv'), index=False)
     
     # Save config
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
@@ -73,4 +109,10 @@ def train_full_hpf_cavi():
     print("Done.")
 
 if __name__ == "__main__":
-    train_full_hpf_cavi()
+    parser = argparse.ArgumentParser(description='Train HPF CAVI')
+    parser.add_argument('--dataset_mode', type=str, default='train', 
+                        choices=['train', 'train+val', 'full'],
+                        help='Which dataset splits to use for training')
+    args = parser.parse_args()
+    
+    train_full_hpf_cavi(dataset_mode=args.dataset_mode)

@@ -5,16 +5,30 @@ import time
 import torch
 from dataclasses import asdict
 
+from src.data.load_data import load_all_splits
+from src.experiments.compare_models import load_best_hyperparams
 from src.models.hpf_pytorch import HPF_PyTorch, HPF_PyTorch_Config
+from src.utils.mapping import get_recipe_id_map
 
-def train_full_hpf_pytorch():
-    print("=== Training Full HPF (PyTorch) ===")
+import argparse
+
+def train_full_hpf_pytorch(dataset_mode='train'):
+    print(f"=== Training Full HPF (PyTorch) | Mode: {dataset_mode} ===")
     
     # 1. Load Data
-    data_path = 'data/processed/interactions_processed.csv'
-    print(f"Loading data from {data_path}...")
-    df = pd.read_csv(data_path)
-    df = df[['u', 'i', 'rating']]
+    print("Loading data using load_all_splits...")
+    train_df, val_df, test_df = load_all_splits()
+    
+    if dataset_mode == 'train':
+        df = train_df[['u', 'i', 'rating']]
+    elif dataset_mode == 'train+val':
+        print("Concatenating train and validation sets...")
+        df = pd.concat([train_df, val_df])[['u', 'i', 'rating']]
+    elif dataset_mode == 'full':
+        print("Concatenating train, validation, and test sets...")
+        df = pd.concat([train_df, val_df, test_df])[['u', 'i', 'rating']]
+    else:
+        raise ValueError(f"Invalid dataset_mode: {dataset_mode}. Choose from 'train', 'train+val', 'full'.")
     
     # Preprocessing: Shift Ratings by +1
     print("Shifting ratings by +1 for HPF...")
@@ -32,25 +46,36 @@ def train_full_hpf_pytorch():
     item_counts[i_vals] = i_counts
     
     # 2. Configure Model (Best Params)
-    # {'n_factors': 20, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, 'lr': 0.01, 'epochs': 50...}
-    config = HPF_PyTorch_Config(
-        n_factors=20,
-        a=1.0,
-        a_prime=1.0,
-        b_prime=1.0,
-        c=1.0,
-        c_prime=1.0,
-        d_prime=1.0,
-        lr=0.01,
-        epochs=50,
-        verbose=True
-    )
+    print("Loading best hyperparameters...")
+    hyperparams = load_best_hyperparams()
+    config_dict = hyperparams.get('HPF_PyTorch', {})
+    
+    if config_dict:
+        # Filter valid keys
+        valid_keys = HPF_PyTorch_Config.__annotations__.keys()
+        filtered_config = {k: v for k, v in config_dict.items() if k in valid_keys}
+        print(f"Using loaded config: {filtered_config}")
+        config = HPF_PyTorch_Config(**filtered_config)
+    else:
+        print("Using default config (fallback)")
+        config = HPF_PyTorch_Config(
+            n_factors=20,
+            a=1.0,
+            a_prime=1.0,
+            b_prime=1.0,
+            c=1.0,
+            c_prime=1.0,
+            d_prime=1.0,
+            lr=0.01,
+            epochs=50,
+            verbose=True
+        )
     
     model = HPF_PyTorch(n_users, n_items, user_counts, item_counts, config)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     
     # 3. Train
-    print("Starting training on full dataset...")
+    print("Starting training...")
     start_time = time.time()
     
     class SimpleDataset(torch.utils.data.Dataset):
@@ -61,7 +86,13 @@ def train_full_hpf_pytorch():
         def __len__(self): return len(self.r)
         def __getitem__(self, idx): return self.u[idx], self.i[idx], self.r[idx]
 
-    loader = torch.utils.data.DataLoader(SimpleDataset(df_shifted), batch_size=config.batch_size, shuffle=True)
+    # Use batch_size from config if available (default 1024 if not in dataclass but it usually should be)
+    # Checking HPF_PyTorch_Config definition in memory... it likely doesn't have batch_size based on compare_models usage which hardcoded 4096.
+    # But best_hyperparams.txt has batch_size: 1024. 
+    # If Config doesn't have it, we shouldn't pass it to Config constructor, but we can use it here.
+    batch_size = config_dict.get('batch_size', 4096)
+    
+    loader = torch.utils.data.DataLoader(SimpleDataset(df_shifted), batch_size=batch_size, shuffle=True)
     
     model.train()
     for epoch in range(config.epochs):
@@ -84,20 +115,25 @@ def train_full_hpf_pytorch():
     print(f"Saving embeddings to {output_dir}...")
     model.eval()
     
-    # For PyTorch HPF, the latent factors are theta/beta in the model
-    # They are softplus(parameter) constrained
-    user_emb = model.theta.detach().cpu().numpy() # This might be the raw parameter or property?
-    # Checking source... usually implemented as property returning functional.softplus(self._theta)
-    # If not property, we need softplus. Assuming it behaves like the model definition in hpf_pytorch.py
-    # Let's check hpf_pytorch.py briefly if needed, but standard implementation exposes these.
-    # To be safe, let's look at how predict uses them.
-    # predict uses self.theta[u_indices] which implies self.theta is a property or tensor.
-    
     user_emb = model.theta.detach().cpu().numpy()
     item_emb = model.beta.detach().cpu().numpy()
     
     pd.DataFrame(user_emb).to_csv(os.path.join(output_dir, 'user_embeddings.csv'), index=False)
-    pd.DataFrame(item_emb).to_csv(os.path.join(output_dir, 'item_embeddings.csv'), index=False)
+    
+    item_emb_df = pd.DataFrame(item_emb)
+    
+    # Load mapping
+    id_map = get_recipe_id_map()
+    if id_map is not None:
+        if len(id_map) > len(item_emb_df):
+            id_map = id_map[:len(item_emb_df)]
+        
+        if len(id_map) == len(item_emb_df):
+            item_emb_df.insert(0, 'recipe_id', id_map)
+        else:
+            print("Skipping recipe_id insertion due to size mismatch.")
+    
+    item_emb_df.to_csv(os.path.join(output_dir, 'item_embeddings.csv'), index=False)
     
     # Save config
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
@@ -106,4 +142,10 @@ def train_full_hpf_pytorch():
     print("Done.")
 
 if __name__ == "__main__":
-    train_full_hpf_pytorch()
+    parser = argparse.ArgumentParser(description='Train HPF PyTorch')
+    parser.add_argument('--dataset_mode', type=str, default='train', 
+                        choices=['train', 'train+val', 'full'],
+                        help='Which dataset splits to use for training')
+    args = parser.parse_args()
+    
+    train_full_hpf_pytorch(dataset_mode=args.dataset_mode)

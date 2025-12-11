@@ -7,8 +7,11 @@ import warnings
 from dataclasses import asdict
 
 # Data
+import ast
+import os
+
 # Data
-# from src.data.load_data import load_all_splits
+from src.data.load_data import load_all_splits
 
 # Models
 from src.models.gaussian_mf_cavi_bias import GaussianMFCAVI, GaussianMFCAVIConfig
@@ -19,7 +22,31 @@ from src.models.hpf_pytorch import HPF_PyTorch, HPF_PyTorch_Config
 # Evaluator
 from src.evaluation.metrics import rmse
 
-def run_gaussian_mf(train_df, val_df, test_df, verbose=False):
+def load_best_hyperparams(filepath='best_hyperparams.txt'):
+    if not os.path.exists(filepath):
+        print(f"Warning: {filepath} not found. Using default hyperparameters.")
+        return {}
+    
+    configs = {}
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("="): continue
+            
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                model_name = parts[0].strip()
+                config_str = parts[1].strip()
+                try:
+                    config_dict = ast.literal_eval(config_str)
+                    configs[model_name] = config_dict
+                except Exception as e:
+                    print(f"Error parsing config for {model_name}: {e}")
+                    
+    print(f"Loaded hyperparameters from {filepath}")
+    return configs
+
+def run_gaussian_mf(train_df, val_df, test_df, config_dict=None, verbose=False):
     print("  -> Initializing Gaussian MF (Bias)...", flush=True)
     
     # Preprocessing: Gaussian MF Improved uses Centered Data
@@ -37,19 +64,23 @@ def run_gaussian_mf(train_df, val_df, test_df, verbose=False):
     test_centered = test_df.copy()
     test_centered["rating"] -= global_mean
 
-    # Hyperparameters from run_gaussian_mf_improved.py
-    # Hyperparameters from tune_all_models.py
-    config = GaussianMFCAVIConfig(
-        n_factors=20,
-        sigma2=0.5,
-        eta_theta2=0.1,
-        eta_beta2=0.01,
-        eta_bias2=0.01,
-        max_iter=100,
-        tol=1e-8,
-        random_state=42,
-        verbose=verbose
-    )
+    # Hyperparameters from tune_all_models.py (loaded via config_dict if available)
+    if config_dict:
+        print(f"     [GaussianMF] Using loaded config: {config_dict}")
+        config = GaussianMFCAVIConfig(**config_dict)
+    else:
+        print("     [GaussianMF] Using default config")
+        config = GaussianMFCAVIConfig(
+            n_factors=20,
+            sigma2=0.5,
+            eta_theta2=0.1,
+            eta_beta2=0.01,
+            eta_bias2=0.01,
+            max_iter=100,
+            tol=1e-8,
+            random_state=42,
+            verbose=verbose
+        )
     model = GaussianMFCAVI(config)
     
     print("     [GaussianMF] Starting training (max_iter=100)...", flush=True)
@@ -76,20 +107,24 @@ def run_gaussian_mf(train_df, val_df, test_df, verbose=False):
         "Config": str(asdict(config))
     }
 
-def run_poisson_mf(train_df, val_df, test_df, verbose=False):
+def run_poisson_mf(train_df, val_df, test_df, config_dict=None, verbose=False):
     print("  -> Initializing Poisson MF (CAVI)...", flush=True)
     
-    # Hyperparameters from run_poisson_mf.py
-    # Hyperparameters from tune_all_models.py
-    config = PoissonMFCAVIConfig(
-        n_factors=100,
-        a0=0.1,
-        b0=1.0,
-        max_iter=50, # Increased slightly
-        tol=1e-4,
-        random_state=42,
-        verbose=verbose,
-    )
+    # Hyperparameters from tune_all_models.py (loaded via config_dict if available)
+    if config_dict:
+        print(f"     [PoissonMF] Using loaded config: {config_dict}")
+        config = PoissonMFCAVIConfig(**config_dict)
+    else:
+        print("     [PoissonMF] Using default config")
+        config = PoissonMFCAVIConfig(
+            n_factors=100,
+            a0=0.1,
+            b0=1.0,
+            max_iter=50, # Increased slightly
+            tol=1e-4,
+            random_state=42,
+            verbose=verbose,
+        )
     
     model = PoissonMFCAVI(config)
     
@@ -112,7 +147,7 @@ def run_poisson_mf(train_df, val_df, test_df, verbose=False):
         "Config": str(asdict(config))
     }
 
-def run_hpf_cavi(train_df, val_df, test_df, verbose=False):
+def run_hpf_cavi(train_df, val_df, test_df, config_dict=None, verbose=False):
     print("  -> Initializing HPF (CAVI)...", flush=True)
     
     # Preprocessing: Shift ratings by +1 as per run_hpf_cavi.py
@@ -124,22 +159,26 @@ def run_hpf_cavi(train_df, val_df, test_df, verbose=False):
     test_shifted = test_df.copy()
     test_shifted["rating"] += 1
 
-    # Hyperparameters from run_hpf_cavi.py
-    # Hyperparameters from tune_all_models.py
-    # Best: {'n_factors': 50, 'a': 1.0, 'a_prime': 1.0...}
-    config = HPF_CAVI_Config(
-        n_factors=50,
-        a=1.0,
-        a_prime=1.0,
-        b_prime=1.0,
-        c=1.0,
-        c_prime=1.0,
-        d_prime=1.0,
-        max_iter=100,
-        tol=1e-4,
-        random_state=42,
-        verbose=verbose
-    )
+    # Hyperparameters from tune_all_models.py (loaded via config_dict if available)
+    if config_dict:
+        print(f"     [HPF_CAVI] Using loaded config: {config_dict}")
+        config = HPF_CAVI_Config(**config_dict)
+    else:
+        print("     [HPF_CAVI] Using default config")
+        # Best: {'n_factors': 50, 'a': 1.0, 'a_prime': 1.0...}
+        config = HPF_CAVI_Config(
+            n_factors=50,
+            a=1.0,
+            a_prime=1.0,
+            b_prime=1.0,
+            c=1.0,
+            c_prime=1.0,
+            d_prime=1.0,
+            max_iter=100,
+            tol=1e-4,
+            random_state=42,
+            verbose=verbose
+        )
     model = HPF_CAVI(config)
     
     print("     [HPF_CAVI] Starting training...", flush=True)
@@ -166,7 +205,7 @@ def run_hpf_cavi(train_df, val_df, test_df, verbose=False):
         "Config": str(asdict(config))
     }
 
-def run_hpf_pytorch(train_df, val_df, test_df, verbose=False):
+def run_hpf_pytorch(train_df, val_df, test_df, config_dict=None, verbose=False):
     print("  -> Initializing HPF (PyTorch)...", flush=True)
     
     # Preprocessing: Shift ratings by +1 as per run_hpf_pytorch.py
@@ -189,21 +228,30 @@ def run_hpf_pytorch(train_df, val_df, test_df, verbose=False):
     i_vals, i_counts = np.unique(train_df["i"], return_counts=True)
     item_counts[i_vals] = i_counts
     
-    # Hyperparameters from run_hpf_pytorch.py
-    # Hyperparameters from tune_all_models.py
-    # Best: {'n_factors': 20, 'a': 1.0, 'prime': 1.0, 'lr': 0.01}
-    config = HPF_PyTorch_Config(
-        n_factors=20,
-        a=1.0,
-        a_prime=1.0,
-        b_prime=1.0,
-        c=1.0,
-        c_prime=1.0,
-        d_prime=1.0,
-        lr=0.01,
-        epochs=50,
-        verbose=verbose
-    )
+    # Hyperparameters from tune_all_models.py (loaded via config_dict if available)
+    if config_dict:
+        # Filter out keys that are not in HPF_PyTorch_Config
+        valid_keys = HPF_PyTorch_Config.__annotations__.keys()
+        # Also remove 'device' if present but not in Config (or if Config handles it)
+        # Checking Config... usually just basic params.
+        filtered_config = {k: v for k, v in config_dict.items() if k in valid_keys}
+        print(f"     [HPF_PyTorch] Using loaded config: {filtered_config}")
+        config = HPF_PyTorch_Config(**filtered_config)
+    else:
+        print("     [HPF_PyTorch] Using default config")
+        # Best: {'n_factors': 20, 'a': 1.0, 'prime': 1.0, 'lr': 0.01}
+        config = HPF_PyTorch_Config(
+            n_factors=20,
+            a=1.0,
+            a_prime=1.0,
+            b_prime=1.0,
+            c=1.0,
+            c_prime=1.0,
+            d_prime=1.0,
+            lr=0.01,
+            epochs=50,
+            verbose=verbose
+        )
     
     model = HPF_PyTorch(n_users, n_items, user_counts, item_counts, config)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
@@ -318,43 +366,45 @@ def plot_results(results_df):
     print("Parameters saved to model_comparison_params.txt", flush=True)
 
 def main():
-    print("Loading Data from data/processed...", flush=True)
-    # Load new processed splits
-    cols = ['u', 'i', 'rating']
+    print("Loading Data (using load_all_splits)...", flush=True)
     try:
-        train_df = pd.read_csv('data/processed/train.csv')[cols]
-        val_df = pd.read_csv('data/processed/val.csv')[cols]
-        test_df = pd.read_csv('data/processed/test.csv')[cols]
-    except FileNotFoundError as e:
+        train_df, val_df, test_df = load_all_splits()
+    except Exception as e:
         print(f"Error loading data: {e}")
-        print("Please run src.utils.generate_processed_data first.")
         return
+
+    # Load Hyperparameters
+    hyperparams = load_best_hyperparams('best_hyperparams.txt')
 
     results = []
     
     # 1. Gaussian MF
     try:
-        results.append(run_gaussian_mf(train_df, val_df, test_df, verbose=True))
+        config = hyperparams.get('GaussianMF')
+        results.append(run_gaussian_mf(train_df, val_df, test_df, config_dict=config, verbose=True))
     except Exception as e:
-        print(f"Gaussian MF failed: {e}")
+        print(f"GaussianMF failed: {e}")
         import traceback
         traceback.print_exc()
         
     # 2. Poisson MF
     try:
-        results.append(run_poisson_mf(train_df, val_df, test_df, verbose=True))
+        config = hyperparams.get('PoissonMF')
+        results.append(run_poisson_mf(train_df, val_df, test_df, config_dict=config, verbose=True))
     except Exception as e:
-        print(f"Poisson MF failed: {e}")
+        print(f"PoissonMF failed: {e}")
 
     # 3. HPF CAVI
     try:
-        results.append(run_hpf_cavi(train_df, val_df, test_df, verbose=True))
+        config = hyperparams.get('HPF_CAVI')
+        results.append(run_hpf_cavi(train_df, val_df, test_df, config_dict=config, verbose=True))
     except Exception as e:
         print(f"HPF CAVI failed: {e}")
         
     # 4. HPF PyTorch
     try:
-        results.append(run_hpf_pytorch(train_df, val_df, test_df, verbose=True))
+        config = hyperparams.get('HPF_PyTorch')
+        results.append(run_hpf_pytorch(train_df, val_df, test_df, config_dict=config, verbose=True))
     except Exception as e:
         print(f"HPF PyTorch failed: {e}")
         import traceback
