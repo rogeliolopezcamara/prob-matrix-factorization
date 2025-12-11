@@ -7,7 +7,8 @@ import warnings
 from dataclasses import asdict
 
 # Data
-from src.data.load_data import load_all_splits
+# Data
+# from src.data.load_data import load_all_splits
 
 # Models
 from src.models.gaussian_mf_cavi_bias import GaussianMFCAVI, GaussianMFCAVIConfig
@@ -37,12 +38,13 @@ def run_gaussian_mf(train_df, val_df, test_df, verbose=False):
     test_centered["rating"] -= global_mean
 
     # Hyperparameters from run_gaussian_mf_improved.py
+    # Hyperparameters from tune_all_models.py
     config = GaussianMFCAVIConfig(
         n_factors=20,
-        sigma2=1.0,
+        sigma2=0.5,
         eta_theta2=0.1,
-        eta_beta2=0.1,
-        eta_bias2=0.1,
+        eta_beta2=0.01,
+        eta_bias2=0.01,
         max_iter=100,
         tol=1e-8,
         random_state=42,
@@ -78,11 +80,12 @@ def run_poisson_mf(train_df, val_df, test_df, verbose=False):
     print("  -> Initializing Poisson MF (CAVI)...", flush=True)
     
     # Hyperparameters from run_poisson_mf.py
+    # Hyperparameters from tune_all_models.py
     config = PoissonMFCAVIConfig(
-        n_factors=50,
-        a0=0.3,
+        n_factors=100,
+        a0=0.1,
         b0=1.0,
-        max_iter=20,
+        max_iter=50, # Increased slightly
         tol=1e-4,
         random_state=42,
         verbose=verbose,
@@ -122,16 +125,18 @@ def run_hpf_cavi(train_df, val_df, test_df, verbose=False):
     test_shifted["rating"] += 1
 
     # Hyperparameters from run_hpf_cavi.py
+    # Hyperparameters from tune_all_models.py
+    # Best: {'n_factors': 50, 'a': 1.0, 'a_prime': 1.0...}
     config = HPF_CAVI_Config(
-        n_factors=20,
-        a=0.3,
+        n_factors=50,
+        a=1.0,
         a_prime=1.0,
         b_prime=1.0,
-        c=0.3,
+        c=1.0,
         c_prime=1.0,
         d_prime=1.0,
         max_iter=100,
-        tol=1e-4, # Default from class/script
+        tol=1e-4,
         random_state=42,
         verbose=verbose
     )
@@ -185,15 +190,17 @@ def run_hpf_pytorch(train_df, val_df, test_df, verbose=False):
     item_counts[i_vals] = i_counts
     
     # Hyperparameters from run_hpf_pytorch.py
+    # Hyperparameters from tune_all_models.py
+    # Best: {'n_factors': 20, 'a': 1.0, 'prime': 1.0, 'lr': 0.01}
     config = HPF_PyTorch_Config(
         n_factors=20,
-        a=0.3,
-        a_prime=3.0,
+        a=1.0,
+        a_prime=1.0,
         b_prime=1.0,
-        c=0.3,
-        c_prime=3.0,
+        c=1.0,
+        c_prime=1.0,
         d_prime=1.0,
-        lr=0.001,
+        lr=0.01,
         epochs=50,
         verbose=verbose
     )
@@ -311,9 +318,18 @@ def plot_results(results_df):
     print("Parameters saved to model_comparison_params.txt", flush=True)
 
 def main():
-    print("Loading Data...", flush=True)
-    train_df, val_df, test_df = load_all_splits()
-    
+    print("Loading Data from data/processed...", flush=True)
+    # Load new processed splits
+    cols = ['u', 'i', 'rating']
+    try:
+        train_df = pd.read_csv('data/processed/train.csv')[cols]
+        val_df = pd.read_csv('data/processed/val.csv')[cols]
+        test_df = pd.read_csv('data/processed/test.csv')[cols]
+    except FileNotFoundError as e:
+        print(f"Error loading data: {e}")
+        print("Please run src.utils.generate_processed_data first.")
+        return
+
     results = []
     
     # 1. Gaussian MF
