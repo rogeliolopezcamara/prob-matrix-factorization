@@ -1,12 +1,12 @@
 === Gaussian MF (CAVI) ===
-{'n_factors': 30, 'sigma2': 0.3, 'eta_theta2': 0.5, 'eta_beta2': 0.5, 'eta_bias2': 1.0, 'max_iter': 50, 'tol': 0.001, 'random_state': 42, 'verbose': True}
+{'n_factors': 30, 'sigma2': 0.3, 'eta_theta2': 0.5, 'eta_beta2': 0.5, 'eta_bias2': 1.0, 'max_iter': 100, 'tol': 0.001, 'random_state': 42, 'verbose': True}
 
 === Poisson MF (CAVI) ===
-{'n_factors': 40, 'a0': 0.1, 'b0': 0.5, 'max_iter': 100, 'tol': None, 'random_state': 42, 'verbose': True}
+{'n_factors': 40, 'a0': 0.1, 'b0': 0.5, 'max_iter': 150, 'tol': None, 'random_state': 42, 'verbose': True}
 
 === HPF (CAVI) ===
 {'n_factors': 20, 'a': 0.3, 'a_prime': 5.0, 'b_prime': 5.0, 'c': 0.3, 'c_prime': 5.0, 'd_prime': 5.0, 'max_iter': 100, 'tol': None, 'random_state': 42, 'verbose': True}
 
 === HPF (PyTorch) ===
-{'n_factors': 10, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, 'lr': 0.005, 'batch_size': 1024, 'epochs': 20, 'device': 'cpu', 'verbose': True}
+{'n_factors': 10, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, 'lr': 0.0005, 'batch_size': 1024, 'epochs': 50, 'device': 'cpu', 'verbose': True}
 
