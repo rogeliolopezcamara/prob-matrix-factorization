@@ -3,6 +3,7 @@ import numpy as np
 import time
 import random
 import itertools
+import argparse
 from dataclasses import asdict
 
 # Models
@@ -13,7 +14,7 @@ from src.models.hpf_pytorch import HPF_PyTorch, HPF_PyTorch_Config
 from src.experiments.compare_models import run_gaussian_mf, run_poisson_mf, run_hpf_cavi, run_hpf_pytorch
 # Note: we will reimplement evaluation loops here to allow dynamic config injection
 
-from src.evaluation.metrics import rmse
+from src.evaluation.metrics import rmse, macro_mae
 import torch
 
 from src.data.load_data import load_all_splits
@@ -29,7 +30,7 @@ def load_data():
     
     return train_sample, val_sample
 
-def tune_gaussian_mf(train_df, val_df, n_trials=10):
+def tune_gaussian_mf(train_df, val_df, n_trials=10, verbose=False):
     print("\n=== Tuning Gaussian MF (CAVI) ===")
     
     # Preprocessing (Center data)
@@ -41,12 +42,12 @@ def tune_gaussian_mf(train_df, val_df, n_trials=10):
     
     # Search Space
     param_grid = {
-        'n_factors': [20, 50, 100],
-        'sigma2': [0.5, 1.0, 2.0],
-        'eta_reg': [0.01, 0.1, 1.0], # Combined for simplicity or separate
+        'n_factors': [30, 50, 70],
+        'sigma2': [0.3, 0.5, 0.7],
+        'eta_reg': [0.5, 1.0, 2.0], # Combined for simplicity or separate
     }
     
-    best_rmse = float('inf')
+    best_score = float('inf')
     best_config = None
     
     for i in range(n_trials):
@@ -66,37 +67,41 @@ def tune_gaussian_mf(train_df, val_df, n_trials=10):
             eta_bias2=eta_bias2,
             max_iter=50, # Reduced for tuning speed
             tol=1e-3,
-            verbose=False,
+            verbose=verbose,
             random_state=42
         )
         
         try:
             model = GaussianMFCAVI(config)
             model.fit(train_c, val_df=val_c, global_mean=global_mean)
-            val_rmse = model.evaluate_rmse(val_c, global_mean)
             
-            print(f"Trial {i+1}/{n_trials}: RMSE={val_rmse:.4f} | factors={factors}, s2={sigma2}, reg={eta_theta2}/{eta_beta2}/{eta_bias2}")
+            # Evaluate using Macro MAE (on original scale)
+            preds = model.predict(val_df["u"].to_numpy(), val_df["i"].to_numpy(), global_mean)
+            val_macro_mae = macro_mae(val_df["rating"].to_numpy(), preds)
+            val_rmse = rmse(val_df["rating"].to_numpy(), preds)
             
-            if val_rmse < best_rmse:
-                best_rmse = val_rmse
+            print(f"Trial {i+1}/{n_trials}: MacroMAE={val_macro_mae:.4f} (RMSE={val_rmse:.4f}) | factors={factors}, s2={sigma2}, reg={eta_theta2}/{eta_beta2}/{eta_bias2}")
+            
+            if val_macro_mae < best_score:
+                best_score = val_macro_mae
                 best_config = config
         except Exception as e:
             print(f"Trial {i+1} failed: {e}")
 
-    print(f"Best Gaussian MF RMSE: {best_rmse:.4f}")
+    print(f"Best Gaussian MF MacroMAE: {best_score:.4f}")
     return best_config
 
-def tune_poisson_mf(train_df, val_df, n_trials=10):
+def tune_poisson_mf(train_df, val_df, n_trials=10, verbose=False):
     print("\n=== Tuning Poisson MF (CAVI) ===")
     
     # Search Space
     param_grid = {
-        'n_factors': [20, 50, 100],
-        'a0': [0.1, 0.3, 1.0],
-        'b0': [0.3, 1.0, 3.0]
+        'n_factors': [10, 20, 40],
+        'a0': [0.05, 0.1, 0.2],
+        'b0': [0.1, 0.3, 0.5]
     }
     
-    best_rmse = float('inf')
+    best_score = float('inf')
     best_config = None
     
     for i in range(n_trials):
@@ -110,27 +115,30 @@ def tune_poisson_mf(train_df, val_df, n_trials=10):
             b0=b0,
             max_iter=30,
             tol=1e-3,
-            verbose=False,
+            verbose=verbose,
             random_state=42
         )
         
         try:
             model = PoissonMFCAVI(config)
             model.fit(train_df, val_df=val_df)
-            val_rmse = model.evaluate_rmse(val_df)
             
-            print(f"Trial {i+1}/{n_trials}: RMSE={val_rmse:.4f} | factors={factors}, a0={a0}, b0={b0}")
+            preds = model.predict(val_df["u"].to_numpy(), val_df["i"].to_numpy())
+            val_macro_mae = macro_mae(val_df["rating"].to_numpy(), preds)
+            val_rmse = rmse(val_df["rating"].to_numpy(), preds)
             
-            if val_rmse < best_rmse and not np.isnan(val_rmse):
-                best_rmse = val_rmse
+            print(f"Trial {i+1}/{n_trials}: MacroMAE={val_macro_mae:.4f} (RMSE={val_rmse:.4f}) | factors={factors}, a0={a0}, b0={b0}")
+            
+            if val_macro_mae < best_score and not np.isnan(val_macro_mae):
+                best_score = val_macro_mae
                 best_config = config
         except Exception as e:
             print(f"Trial {i+1} failed: {e}")
 
-    print(f"Best Poisson MF RMSE: {best_rmse:.4f}")
+    print(f"Best Poisson MF MacroMAE: {best_score:.4f}")
     return best_config
 
-def tune_hpf_cavi(train_df, val_df, n_trials=10):
+def tune_hpf_cavi(train_df, val_df, n_trials=10, verbose=False):
     print("\n=== Tuning HPF (CAVI) ===")
     
     # Preprocessing: Shift +1
@@ -142,12 +150,12 @@ def tune_hpf_cavi(train_df, val_df, n_trials=10):
     # Search Space
     # Focusing on a, a' and c, c' which are shape/rate for user/item gammas
     param_grid = {
-        'n_factors': [20, 50],
-        'hyper_a': [0.3, 1.0],   # a, c
-        'hyper_aprime': [1.0, 3.0, 5.0] # a', c', b', d' usually kept similar or scaled
+        'n_factors': [10, 20, 30],
+        'hyper_a': [0.1, 0.3, 0.5],   # a, c
+        'hyper_aprime': [3.0, 5.0, 7.0] # a', c', b', d' usually kept similar or scaled
     }
     
-    best_rmse = float('inf')
+    best_score = float('inf')
     best_config = None
     
     for i in range(n_trials):
@@ -161,7 +169,7 @@ def tune_hpf_cavi(train_df, val_df, n_trials=10):
             c=c, c_prime=prime, d_prime=prime,
             max_iter=50,
             tol=1e-3,
-            verbose=False
+            verbose=verbose
         )
         
         try:
@@ -170,20 +178,25 @@ def tune_hpf_cavi(train_df, val_df, n_trials=10):
             
             # Eval shifted
             preds = model.predict(val_s["u"].to_numpy(), val_s["i"].to_numpy())
-            val_rmse = rmse(val_s["rating"].to_numpy() - 1, preds - 1)
+            # Unshift for metrics
+            y_true_orig = val_s["rating"].to_numpy() - 1
+            preds_orig = preds - 1
             
-            print(f"Trial {i+1}/{n_trials}: RMSE={val_rmse:.4f} | factors={factors}, a={a}, prime={prime}")
+            val_macro_mae = macro_mae(y_true_orig, preds_orig)
+            val_rmse = rmse(y_true_orig, preds_orig)
             
-            if val_rmse < best_rmse and not np.isnan(val_rmse):
-                best_rmse = val_rmse
+            print(f"Trial {i+1}/{n_trials}: MacroMAE={val_macro_mae:.4f} (RMSE={val_rmse:.4f}) | factors={factors}, a={a}, prime={prime}")
+            
+            if val_macro_mae < best_score and not np.isnan(val_macro_mae):
+                best_score = val_macro_mae
                 best_config = config
         except Exception as e:
             print(f"Trial {i+1} failed: {e}")
             
-    print(f"Best HPF CAVI RMSE: {best_rmse:.4f}")
+    print(f"Best HPF CAVI MacroMAE: {best_score:.4f}")
     return best_config
 
-def tune_hpf_pytorch(train_df, val_df, n_trials=10):
+def tune_hpf_pytorch(train_df, val_df, n_trials=10, verbose=False):
     print("\n=== Tuning HPF (PyTorch) ===")
     
     train_s = train_df.copy()
@@ -204,13 +217,13 @@ def tune_hpf_pytorch(train_df, val_df, n_trials=10):
 
     # Search Space
     param_grid = {
-        'n_factors': [20, 50],
-        'lr': [0.001, 0.005, 0.01],
-        'hyper_a': [0.3, 1.0],
-        'hyper_prime': [1.0, 3.0]
+        'n_factors': [10, 20, 30],
+        'lr': [0.005, 0.01, 0.02],
+        'hyper_a': [0.5, 1.0, 1.5],
+        'hyper_prime': [0.5, 1.0, 2.0]
     }
     
-    best_rmse = float('inf')
+    best_score = float('inf')
     best_config = None
     
     # Dataset
@@ -236,7 +249,7 @@ def tune_hpf_pytorch(train_df, val_df, n_trials=10):
             c=c, c_prime=prime, d_prime=prime,
             lr=lr,
             epochs=20, # Short epochs for tuning
-            verbose=False
+            verbose=verbose
         )
         
         try:
@@ -255,27 +268,38 @@ def tune_hpf_pytorch(train_df, val_df, n_trials=10):
             # Eval
             model.eval()
             preds = model.predict(val_s["u"].values, val_s["i"].values)
-            val_rmse = rmse(val_s["rating"].values - 1, preds - 1)
             
-            print(f"Trial {i+1}/{n_trials}: RMSE={val_rmse:.4f} | factors={factors}, lr={lr}, a={a}, prime={prime}")
+            # Unshift
+            y_true_orig = val_s["rating"].values - 1
+            preds_orig = preds - 1
             
-            if val_rmse < best_rmse and not np.isnan(val_rmse):
-                best_rmse = val_rmse
+            val_macro_mae = macro_mae(y_true_orig, preds_orig)
+            val_rmse = rmse(y_true_orig, preds_orig)
+            
+            print(f"Trial {i+1}/{n_trials}: MacroMAE={val_macro_mae:.4f} (RMSE={val_rmse:.4f}) | factors={factors}, lr={lr}, a={a}, prime={prime}")
+            
+            if val_macro_mae < best_score and not np.isnan(val_macro_mae):
+                best_score = val_macro_mae
                 best_config = config
         except Exception as e:
             print(f"Trial {i+1} failed: {e}")
 
-    print(f"Best HPF PyTorch RMSE: {best_rmse:.4f}")
+    print(f"Best HPF PyTorch MacroMAE: {best_score:.4f}")
     return best_config
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Tune all models')
+    parser.add_argument('--n_trials', type=int, default=5, help='Number of trials per model')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    args = parser.parse_args()
+
     train_df, val_df = load_data()
     
-    best_gaussian = tune_gaussian_mf(train_df, val_df, n_trials=5)
-    best_poisson = tune_poisson_mf(train_df, val_df, n_trials=5)
-    best_hpf_cavi = tune_hpf_cavi(train_df, val_df, n_trials=5)
-    best_hpf_pytorch = tune_hpf_pytorch(train_df, val_df, n_trials=5)
+    best_gaussian = tune_gaussian_mf(train_df, val_df, n_trials=args.n_trials, verbose=args.verbose)
+    best_poisson = tune_poisson_mf(train_df, val_df, n_trials=args.n_trials, verbose=args.verbose)
+    best_hpf_cavi = tune_hpf_cavi(train_df, val_df, n_trials=args.n_trials, verbose=args.verbose)
+    best_hpf_pytorch = tune_hpf_pytorch(train_df, val_df, n_trials=args.n_trials, verbose=args.verbose)
     
     print("\n\n=== TUNING COMPLETE. BEST CONFIGURATIONS ===")
     if best_gaussian: print(f"GaussianMF: {asdict(best_gaussian)}")

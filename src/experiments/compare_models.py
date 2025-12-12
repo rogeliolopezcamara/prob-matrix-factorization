@@ -20,7 +20,7 @@ from src.models.hpf_cavi import HPF_CAVI, HPF_CAVI_Config
 from src.models.hpf_pytorch import HPF_PyTorch, HPF_PyTorch_Config
 
 # Evaluator
-from src.evaluation.metrics import rmse
+from src.evaluation.metrics import rmse, macro_mae
 
 def load_best_hyperparams(filepath='best_hyperparams.txt'):
     if not os.path.exists(filepath):
@@ -98,11 +98,24 @@ def run_gaussian_mf(train_df, val_df, test_df, config_dict=None, verbose=False):
     val_rmse = model.evaluate_rmse(val_centered, global_mean)
     test_rmse = model.evaluate_rmse(test_centered, global_mean)
     
+    # Calculate Macro MAE
+    # We need predictions on the original scale
+    train_preds = model.predict(train_centered["u"].to_numpy(), train_centered["i"].to_numpy(), global_mean)
+    val_preds = model.predict(val_centered["u"].to_numpy(), val_centered["i"].to_numpy(), global_mean)
+    test_preds = model.predict(test_centered["u"].to_numpy(), test_centered["i"].to_numpy(), global_mean)
+    
+    train_mae = macro_mae(train_df["rating"].to_numpy(), train_preds)
+    val_mae = macro_mae(val_df["rating"].to_numpy(), val_preds)
+    test_mae = macro_mae(test_df["rating"].to_numpy(), test_preds)
+    
     return {
         "Model": "Gaussian MF (CAVI)",
         "Train RMSE": train_rmse,
         "Val RMSE": val_rmse,
         "Test RMSE": test_rmse,
+        "Train MacroMAE": train_mae,
+        "Val MacroMAE": val_mae,
+        "Test MacroMAE": test_mae,
         "Time (s)": train_time,
         "Config": str(asdict(config))
     }
@@ -138,11 +151,23 @@ def run_poisson_mf(train_df, val_df, test_df, config_dict=None, verbose=False):
     val_rmse = model.evaluate_rmse(val_df)
     test_rmse = model.evaluate_rmse(test_df)
     
+    # Calculate Macro MAE
+    train_preds = model.predict(train_df["u"].to_numpy(), train_df["i"].to_numpy())
+    val_preds = model.predict(val_df["u"].to_numpy(), val_df["i"].to_numpy())
+    test_preds = model.predict(test_df["u"].to_numpy(), test_df["i"].to_numpy())
+    
+    train_mae = macro_mae(train_df["rating"].to_numpy(), train_preds)
+    val_mae = macro_mae(val_df["rating"].to_numpy(), val_preds)
+    test_mae = macro_mae(test_df["rating"].to_numpy(), test_preds)
+    
     return {
         "Model": "Poisson MF (CAVI)",
         "Train RMSE": train_rmse,
         "Val RMSE": val_rmse,
         "Test RMSE": test_rmse,
+        "Train MacroMAE": train_mae,
+        "Val MacroMAE": val_mae,
+        "Test MacroMAE": test_mae,
         "Time (s)": train_time,
         "Config": str(asdict(config))
     }
@@ -188,19 +213,25 @@ def run_hpf_cavi(train_df, val_df, test_df, config_dict=None, verbose=False):
     print(f"     [HPF_CAVI] Training finished in {train_time:.1f}s", flush=True)
     
     # Evaluate - model predicts on shifted scale, need to shift back for RMSE
-    def get_rmse_shifted(model, df):
+    # Evaluate - model predicts on shifted scale, need to shift back for RMSE
+    def get_metrics_shifted(model, df):
         preds = model.predict(df["u"].to_numpy(), df["i"].to_numpy())
-        return rmse(df["rating"].to_numpy() - 1, preds - 1)
+        rmse_val = rmse(df["rating"].to_numpy() - 1, preds - 1)
+        mae_val = macro_mae(df["rating"].to_numpy() - 1, preds - 1)
+        return rmse_val, mae_val
         
-    train_rmse = get_rmse_shifted(model, train_shifted)
-    val_rmse = get_rmse_shifted(model, val_shifted)
-    test_rmse = get_rmse_shifted(model, test_shifted)
+    train_rmse, train_mae = get_metrics_shifted(model, train_shifted)
+    val_rmse, val_mae = get_metrics_shifted(model, val_shifted)
+    test_rmse, test_mae = get_metrics_shifted(model, test_shifted)
     
     return {
         "Model": "HPF (CAVI)",
         "Train RMSE": train_rmse,
         "Val RMSE": val_rmse,
         "Test RMSE": test_rmse,
+        "Train MacroMAE": train_mae,
+        "Val MacroMAE": val_mae,
+        "Test MacroMAE": test_mae,
         "Time (s)": train_time,
         "Config": str(asdict(config))
     }
@@ -290,19 +321,24 @@ def run_hpf_pytorch(train_df, val_df, test_df, config_dict=None, verbose=False):
     # Predict (Shift back -1)
     model.eval()
     
-    def get_rmse(model, df):
+    def get_metrics(model, df):
         preds = model.predict(df["u"].values, df["i"].values)
-        return rmse(df["rating"].values - 1, preds - 1)
+        rmse_val = rmse(df["rating"].values - 1, preds - 1)
+        mae_val = macro_mae(df["rating"].values - 1, preds - 1)
+        return rmse_val, mae_val
         
-    train_rmse = get_rmse(model, train_shifted)
-    val_rmse = get_rmse(model, val_shifted)
-    test_rmse = get_rmse(model, test_shifted)
+    train_rmse, train_mae = get_metrics(model, train_shifted)
+    val_rmse, val_mae = get_metrics(model, val_shifted)
+    test_rmse, test_mae = get_metrics(model, test_shifted)
     
     return {
         "Model": "HPF (PyTorch)",
         "Train RMSE": train_rmse,
         "Val RMSE": val_rmse,
         "Test RMSE": test_rmse,
+        "Train MacroMAE": train_mae,
+        "Val MacroMAE": val_mae,
+        "Test MacroMAE": test_mae,
         "Time (s)": train_time,
         "Config": str(asdict(config))
     }
@@ -343,16 +379,47 @@ def plot_results(results_df):
     for container in axes[0].containers:
         axes[0].bar_label(container, fmt='%.3f', padding=3, rotation=0, fontsize=10, fontweight='bold')
 
-    # 2. Time Comparison
-    times = results_df.set_index("Model")["Time (s)"]
-    bars = axes[1].bar(times.index, times.values, color='#d62728', alpha=0.7)
     
-    axes[1].set_title("Training Time (Seconds)", fontsize=14, fontweight='bold')
-    axes[1].set_ylabel("Time (s)", fontsize=12)
+    # 2. Time Comparison (Now on 3rd slot, let's make 3 plots)
+    # Re-layout: 1 row, 3 cols
+    plt.close(fig) # close old one
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    columns = ["Train RMSE", "Val RMSE", "Test RMSE"]
+    pivot_rmse = results_df.set_index("Model")[columns]
+    
+    # Colors
+    colors_rmse = ['#1f77b4', '#aec7e8', '#ff7f0e']
+    
+    pivot_rmse.plot(kind='bar', ax=axes[0], color=colors_rmse, alpha=0.9, width=0.8)
+    axes[0].set_title("RMSE (Lower is Better)", fontsize=14, fontweight='bold')
+    axes[0].set_ylabel("RMSE", fontsize=12)
+    axes[0].tick_params(axis='x', rotation=0)
+    for container in axes[0].containers:
+        axes[0].bar_label(container, fmt='%.3f', padding=3, fontsize=9)
+        
+    # 2. Macro MAE Comparison
+    mae_columns = ["Train MacroMAE", "Val MacroMAE", "Test MacroMAE"]
+    pivot_mae = results_df.set_index("Model")[mae_columns]
+    
+    colors_mae = ['#2ca02c', '#98df8a', '#d62728']
+    
+    pivot_mae.plot(kind='bar', ax=axes[1], color=colors_mae, alpha=0.9, width=0.8)
+    axes[1].set_title("Macro-MAE (Lower is Better)", fontsize=14, fontweight='bold')
+    axes[1].set_ylabel("Macro MAE", fontsize=12)
     axes[1].tick_params(axis='x', rotation=0)
-    axes[1].grid(axis='y', linestyle='--', alpha=0.5)
+    for container in axes[1].containers:
+        axes[1].bar_label(container, fmt='%.3f', padding=3, fontsize=9)
+
+    # 3. Time Comparison
+    times = results_df.set_index("Model")["Time (s)"]
+    bars = axes[2].bar(times.index, times.values, color='#9467bd', alpha=0.7)
     
-    axes[1].bar_label(bars, fmt='%.1f', padding=3, fontsize=10, fontweight='bold')
+    axes[2].set_title("Training Time (Seconds)", fontsize=14, fontweight='bold')
+    axes[2].set_ylabel("Time (s)", fontsize=12)
+    axes[2].tick_params(axis='x', rotation=0)
+    
+    axes[2].bar_label(bars, fmt='%.1f', padding=3, fontsize=10, fontweight='bold')
 
     plt.tight_layout()
     plt.savefig("model_comparison_plots.png", dpi=150)
@@ -413,7 +480,8 @@ def main():
     results_df = pd.DataFrame(results)
     
     print("\n=== FINAL RESULTS ===", flush=True)
-    print(results_df[["Model", "Train RMSE", "Val RMSE", "Test RMSE", "Time (s)"]])
+    print("\n=== FINAL RESULTS ===", flush=True)
+    print(results_df[["Model", "Train RMSE", "Val RMSE", "Test RMSE", "Train MacroMAE", "Val MacroMAE", "Test MacroMAE", "Time (s)"]])
     
     plot_results(results_df)
 

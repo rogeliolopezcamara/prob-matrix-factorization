@@ -2,7 +2,7 @@
 
 import numpy as np
 from dataclasses import dataclass
-from src.evaluation.metrics import rmse
+from src.evaluation.metrics import rmse, macro_mae
 
 from typing import Optional
 
@@ -201,8 +201,9 @@ class PoissonMFCAVI:
             # ----------------------------------------------------------
             if val_df is not None:
                 val_rmse = self.evaluate_rmse(val_df)
+                val_macro_mae = self.evaluate_macro_mae(val_df)
                 if self.config.verbose:
-                    print(f"Validation RMSE: {val_rmse:.4f}")
+                    print(f"Validation RMSE: {val_rmse:.4f} | MacroMAE: {val_macro_mae:.4f}")
                 
                 if prev_val_rmse is not None:
                     improvement = prev_val_rmse - val_rmse
@@ -243,3 +244,8 @@ class PoissonMFCAVI:
         y_true = df["rating"].to_numpy()
         y_pred = self.predict(df["u"].to_numpy(), df["i"].to_numpy())
         return rmse(y_true, y_pred)
+
+    def evaluate_macro_mae(self, df):
+        y_true = df["rating"].to_numpy()
+        y_pred = self.predict(df["u"].to_numpy(), df["i"].to_numpy())
+        return macro_mae(y_true, y_pred)

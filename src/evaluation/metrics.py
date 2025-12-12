@@ -34,6 +34,22 @@ def GaussianLogPredictiveLikelihood(df, theta, beta, sigma):
 
     return total_log_likelihood
 
+def macro_mae(y_true, y_pred):
+    """
+    Compute Macro-Averaged Mean Absolute Error.
+    MAE is computed for each unique true rating value, then averaged.
+    This gives equal weight to each rating class, penalizing models that
+    fail to predict rare classes (e.g., ratings of 1, 2, 3 in a skewed dataset).
+    """
+    labels = np.unique(y_true)
+    maes = []
+    for label in labels:
+        mask = (y_true == label)
+        if np.any(mask):
+            mae_k = np.mean(np.abs(y_true[mask] - y_pred[mask]))
+            maes.append(mae_k)
+    return np.mean(maes)
+
 def PoissonLogPredictiveLikelihood(df,theta,beta,epsilon=1e-10):
     """
     Compute Poission Log Predictive Likelihood.

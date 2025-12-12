@@ -3,7 +3,7 @@
 import numpy as np
 from dataclasses import dataclass
 
-from src.evaluation.metrics import rmse
+from src.evaluation.metrics import rmse, macro_mae
 
 
 @dataclass
@@ -267,8 +267,9 @@ class GaussianMFCAVI:
             # ----------------------------------------------------------
             if val_df is not None:
                 val_rmse = self.evaluate_rmse(val_df, self.global_mean)
+                val_macro_mae = self.evaluate_macro_mae(val_df, self.global_mean)
                 if self.config.verbose:
-                    print(f"Validation RMSE: {val_rmse:.4f}")
+                    print(f"Validation RMSE: {val_rmse:.4f} | MacroMAE: {val_macro_mae:.4f}")
 
                 if prev_val_rmse is not None:
                     improvement = prev_val_rmse - val_rmse
@@ -330,3 +331,18 @@ class GaussianMFCAVI:
         y_pred = self.predict(df["u"].to_numpy(), df["i"].to_numpy(), global_mean)
 
         return rmse(y_true, y_pred)
+
+    def evaluate_macro_mae(self, df, global_mean):
+        """
+        Compute Macro MAE on original rating scale.
+        """
+        mask = (df["u"] < self.n_users) & (df["i"] < self.n_items)
+        df = df[mask]
+
+        if df.empty:
+            return np.nan
+
+        y_true = df["rating"].to_numpy(dtype=float) + global_mean
+        y_pred = self.predict(df["u"].to_numpy(), df["i"].to_numpy(), global_mean)
+
+        return macro_mae(y_true, y_pred)

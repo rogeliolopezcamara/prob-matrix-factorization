@@ -8,6 +8,7 @@ from dataclasses import asdict
 from src.data.load_data import load_all_splits
 from src.experiments.compare_models import load_best_hyperparams
 from src.models.hpf_pytorch import HPF_PyTorch, HPF_PyTorch_Config
+from src.evaluation.metrics import rmse, macro_mae
 from src.utils.mapping import get_recipe_id_map
 
 import argparse
@@ -138,6 +139,34 @@ def train_full_hpf_pytorch(dataset_mode='train'):
     # Save config
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
         f.write(str(asdict(config)))
+
+    # 5. Save Test Predictions
+    print("Generating predictions on Test Set...")
+    pred_dir = 'data/predictions/hpf_pytorch'
+    os.makedirs(pred_dir, exist_ok=True)
+
+    test_u = test_df["u"].to_numpy()
+    test_i = test_df["i"].to_numpy()
+    y_true = test_df["rating"].to_numpy()
+    
+    # Model was trained on shifted ratings (+1)
+    y_pred_shifted = model.predict(test_u, test_i)
+    y_pred = y_pred_shifted - 1.0
+    
+    # Compute Metrics
+    test_macro_mae = macro_mae(y_true, y_pred)
+    test_rmse = rmse(y_true, y_pred)
+    print(f"Test Set Metrics: MacroMAE={test_macro_mae:.4f} | RMSE={test_rmse:.4f}")
+    
+    preds_df = pd.DataFrame({
+        'u': test_u,
+        'i': test_i,
+        'y_true': y_true,
+        'y_pred': y_pred
+    })
+    
+    preds_df.to_csv(os.path.join(pred_dir, 'test_predictions.csv'), index=False)
+    print(f"Saved test predictions to {pred_dir}")
 
     print("Done.")
 

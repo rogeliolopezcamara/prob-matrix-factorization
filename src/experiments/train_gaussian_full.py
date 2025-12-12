@@ -6,7 +6,9 @@ from dataclasses import asdict
 
 from src.data.load_data import load_all_splits
 from src.experiments.compare_models import load_best_hyperparams
+from src.experiments.compare_models import load_best_hyperparams
 from src.models.gaussian_mf_cavi_bias import GaussianMFCAVI, GaussianMFCAVIConfig
+from src.evaluation.metrics import rmse, macro_mae
 from src.utils.mapping import get_recipe_id_map
 
 import argparse
@@ -102,6 +104,35 @@ def train_full_gaussian(dataset_mode='train'):
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
         f.write(str(asdict(config)))
         f.write(f"\nglobal_mean: {global_mean}")
+
+    # 5. Save Test Predictions
+    print("Generating predictions on Test Set...")
+    pred_dir = 'data/predictions/gaussian_mf'
+    os.makedirs(pred_dir, exist_ok=True)
+
+    # Filter test users/items that are in the model range
+    # (The model handles this in predict but we need valid indices for the DF)
+    test_u = test_df["u"].to_numpy()
+    test_i = test_df["i"].to_numpy()
+    y_true = test_df["rating"].to_numpy()
+    
+    # Predict
+    y_pred = model.predict(test_u, test_i, global_mean=global_mean)
+    
+    # Compute Metrics
+    test_macro_mae = macro_mae(y_true, y_pred)
+    test_rmse = rmse(y_true, y_pred)
+    print(f"Test Set Metrics: MacroMAE={test_macro_mae:.4f} | RMSE={test_rmse:.4f}")
+    
+    preds_df = pd.DataFrame({
+        'u': test_u,
+        'i': test_i,
+        'y_true': y_true,
+        'y_pred': y_pred
+    })
+    
+    preds_df.to_csv(os.path.join(pred_dir, 'test_predictions.csv'), index=False)
+    print(f"Saved test predictions to {pred_dir}")
 
     print("Done.")
 

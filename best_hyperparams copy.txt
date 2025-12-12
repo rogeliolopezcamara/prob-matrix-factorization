@@ -1,0 +1,6 @@
+BEST CONFIGURATIONS
+===================
+GaussianMF: {'n_factors': 20, 'sigma2': 0.5, 'eta_theta2': 0.1, 'eta_beta2': 0.01, 'eta_bias2': 0.01, 'max_iter': 50, 'tol': 0.001, 'random_state': 42, 'verbose': False}
+PoissonMF: {'n_factors': 100, 'a0': 0.1, 'b0': 1.0, 'max_iter': 30, 'tol': 0.001, 'random_state': 42, 'verbose': False}
+HPF_CAVI: {'n_factors': 50, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, 'max_iter': 100, 'tol': None, 'random_state': 42, 'verbose': False}
+HPF_PyTorch: {'n_factors': 20, 'a': 1.0, 'a_prime': 1.0, 'b_prime': 1.0, 'c': 1.0, 'c_prime': 1.0, 'd_prime': 1.0, 'lr': 0.01, 'batch_size': 1024, 'epochs': 20, 'device': 'cpu', 'verbose': False}
