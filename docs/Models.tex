@@ -570,5 +570,268 @@ E_{\beta,jk} = \frac{a_{\beta,jk}}{b_{\beta,jk}}.
 \end{algorithmic}
 \end{algorithm}
 
+% ============================================================
+% 4. HIERARCHICAL POISSON FACTORIZATION (HPF) WITH CAVI
+% ============================================================
+
+\section{Hierarchical Poisson Factorization with Mean-field Variational Inference}
+
+\subsection{Model Definition}
+
+Hierarchical Poisson Factorization extends Poisson matrix factorization by introducing
+user- and item-specific Gamma hyperpriors.
+For $U$ users, $M$ items, and latent dimension $K$, the likelihood is
+\[
+y_{ui} \mid \theta_u, \lambda_i
+\sim
+\text{Poisson}\!\left(\sum_{k=1}^K \theta_{uk}\lambda_{ik}\right).
+\]
+
+The hierarchical Gamma priors are
+\[
+\theta_{uk} \sim \text{Gamma}(a,\kappa_u),
+\qquad
+\kappa_u \sim \text{Gamma}(a',b'),
+\]
+\[
+\lambda_{ik} \sim \text{Gamma}(c,\tau_i),
+\qquad
+\tau_i \sim \text{Gamma}(c',d').
+\]
+
+We denote the observed index sets by
+\[
+\Omega_u = \{ i : y_{ui} > 0 \},
+\qquad
+\Omega^i = \{ u : y_{ui} > 0 \}.
+\]
+
+\subsection{Variational Family}
+
+We adopt a mean-field variational approximation:
+\[
+q =
+\prod_{u,k} q(\theta_{uk})
+\prod_{i,k} q(\lambda_{ik})
+\prod_u q(\kappa_u)
+\prod_i q(\tau_i),
+\]
+where
+\[
+q(\theta_{uk}) = \text{Gamma}(\gamma^{shp}_{uk},\gamma^{rte}_{uk}),
+\qquad
+q(\lambda_{ik}) = \text{Gamma}(\lambda^{shp}_{ik},\lambda^{rte}_{ik}),
+\]
+\[
+q(\kappa_u) = \text{Gamma}(\kappa^{shp}_u,\kappa^{rte}_u),
+\qquad
+q(\tau_i) = \text{Gamma}(\tau^{shp}_i,\tau^{rte}_i).
+\]
+
+We will use the expectations
+\[
+\mathbb{E}_q[\log \theta_{uk}]
+=
+\Psi(\gamma^{shp}_{uk}) - \log \gamma^{rte}_{uk},
+\qquad
+\mathbb{E}_q[\log \lambda_{ik}]
+=
+\Psi(\lambda^{shp}_{ik}) - \log \lambda^{rte}_{ik}.
+\]
+
+\subsection{Latent Allocation Variables}
+
+As in the original HPF formulation, we introduce multinomial latent variables
+\[
+y_{ui} = \sum_{k=1}^K y_{uik},
+\qquad
+(y_{ui1},\dots,y_{uiK}) \sim \text{Multinomial}(y_{ui},\boldsymbol{\phi}_{ui}),
+\]
+where the variational multinomial parameters satisfy
+\[
+\phi_{uik}
+\propto
+\exp\!\left\{
+\Psi(\gamma^{shp}_{uk}) - \log \gamma^{rte}_{uk}
++
+\Psi(\lambda^{shp}_{ik}) - \log \lambda^{rte}_{ik}
+\right\}.
+\]
+
+The expected latent counts are
+\[
+\mathbb{E}_q[y_{uik}] = y_{ui}\phi_{uik}.
+\]
+
+\subsection{CAVI Updates}
+
+\subsubsection{User factor updates}
+
+For each user $u$ and factor $k$:
+\[
+\gamma^{shp}_{uk}
+=
+a + \sum_{i\in\Omega_u} y_{ui}\phi_{uik},
+\]
+\[
+\gamma^{rte}_{uk}
+=
+\kappa^{shp}_u / \kappa^{rte}_u
++
+\sum_{i\in\Omega_u}
+\frac{\lambda^{shp}_{ik}}{\lambda^{rte}_{ik}}.
+\]
+
+\subsubsection{User activity hyperprior}
+
+\[
+\kappa^{shp}_u = a' + K a,
+\qquad
+\kappa^{rte}_u
+=
+\frac{a'}{b'}
++
+\sum_{k=1}^K
+\frac{\gamma^{shp}_{uk}}{\gamma^{rte}_{uk}}.
+\]
+
+\subsubsection{Item factor updates}
+
+For each item $i$ and factor $k$:
+\[
+\lambda^{shp}_{ik}
+=
+c + \sum_{u\in\Omega^i} y_{ui}\phi_{uik},
+\]
+\[
+\lambda^{rte}_{ik}
+=
+\tau^{shp}_i / \tau^{rte}_i
++
+\sum_{u\in\Omega^i}
+\frac{\gamma^{shp}_{uk}}{\gamma^{rte}_{uk}}.
+\]
+
+\subsubsection{Item popularity hyperprior}
+
+\[
+\tau^{shp}_i = c' + K c,
+\qquad
+\tau^{rte}_i
+=
+\frac{c'}{d'}
++
+\sum_{k=1}^K
+\frac{\lambda^{shp}_{ik}}{\lambda^{rte}_{ik}}.
+\]
+
+\subsection{Prediction}
+
+Predictions are obtained using the posterior mean intensity:
+\[
+\widehat{y}_{ui}
+=
+\sum_{k=1}^K
+\mathbb{E}_q[\theta_{uk}]
+\mathbb{E}_q[\lambda_{ik}]
+=
+\sum_{k=1}^K
+\frac{\gamma^{shp}_{uk}}{\gamma^{rte}_{uk}}
+\frac{\lambda^{shp}_{ik}}{\lambda^{rte}_{ik}}.
+\]
+
+\subsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{CAVI for Hierarchical Poisson Factorization (HPF)}
+\begin{algorithmic}[1]
+\STATE Initialize $(\gamma^{shp},\gamma^{rte},\lambda^{shp},\lambda^{rte})$ near the priors.
+\STATE Set $\kappa^{shp}_u=a'+Ka$, $\tau^{shp}_i=c'+Kc$.
+\REPEAT
+    \FOR{each $(u,i)$ such that $y_{ui}>0$}
+        \STATE Update $\phi_{uik}$ using digamma expectations.
+    \ENDFOR
+    \FOR{each user $u$}
+        \STATE Update $(\gamma^{shp}_{u\cdot},\gamma^{rte}_{u\cdot})$.
+        \STATE Update $(\kappa^{shp}_u,\kappa^{rte}_u)$.
+    \ENDFOR
+    \FOR{each item $i$}
+        \STATE Update $(\lambda^{shp}_{i\cdot},\lambda^{rte}_{i\cdot})$.
+        \STATE Update $(\tau^{shp}_i,\tau^{rte}_i)$.
+    \ENDFOR
+\UNTIL{convergence}
+\end{algorithmic}
+\end{algorithm}
+
+% ============================================================
+% 5. HIERARCHICAL POISSON FACTORIZATION (HPF) WITH MAP
+% ============================================================
+
+\section{Hierarchical Poisson Factorization with MAP Estimation}
+
+\subsection{Model Definition}
+
+We consider the same hierarchical Poisson factorization model introduced in the previous section.
+For each observed user--item interaction $y_{ui}$, the likelihood is
+\[
+y_{ui} \mid \theta_u,\lambda_i
+\sim
+\text{Poisson}\!\left(\sum_{k=1}^K \theta_{uk}\lambda_{ik}\right).
+\]
+
+The latent factors and their hierarchical priors are
+\[
+\theta_{uk} \sim \text{Gamma}(a,\kappa_u),
+\qquad
+\kappa_u \sim \text{Gamma}(a',b'),
+\]
+\[
+\lambda_{ik} \sim \text{Gamma}(c,\tau_i),
+\qquad
+\tau_i \sim \text{Gamma}(c',d').
+\]
+
+This model is identical to the HPF formulation used for variational inference, differing only in the inference procedure.
+
+\subsection{MAP Estimation}
+
+Instead of approximating the posterior distribution with a variational family, we estimate all latent variables
+\[
+\{\theta_{uk}, \lambda_{ik}, \kappa_u, \tau_i\}
+\]
+via maximum a posteriori (MAP) estimation.
+
+MAP estimation is performed by maximizing the joint log posterior
+\[
+\log p(\theta,\lambda,\kappa,\tau \mid y)
+=
+\log p(y \mid \theta,\lambda)
++
+\log p(\theta \mid \kappa)
++
+\log p(\lambda \mid \tau)
++
+\log p(\kappa)
++
+\log p(\tau),
+\]
+or equivalently minimizing the negative log posterior.
+
+\subsection{Implementation}
+
+The MAP objective is optimized using stochastic gradient-based methods implemented in PyTorch.
+All latent variables are treated as free parameters, and positivity constraints are enforced through an appropriate reparameterization.
+Training proceeds over minibatches of observed user--item interactions.
+
+This approach yields point estimates for all latent quantities, in contrast to the full posterior approximation obtained via CAVI.
+
+\subsection{Prediction}
+
+Predictions are obtained using the MAP estimates of the latent factors:
+\[
+\widehat{y}_{ui}^{\text{MAP}}
+=
+\sum_{k=1}^K \theta_{uk}\lambda_{ik}.
+\]
 
 \end{document}
