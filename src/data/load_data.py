@@ -11,42 +11,42 @@ def preprocess_data():
     Create new train, validation and test set from raw data.
     """
     # get raw data
-    train_raw = pd.read_csv("data/raw/interactions_train.csv",usecols=["u", "i", "rating"])
-    val_raw = pd.read_csv("data/raw/interactions_validation.csv",usecols=["u", "i", "rating"])
-    test_raw = pd.read_csv("data/raw/interactions_test.csv",usecols=["u", "i", "rating"])
+    train_raw = pd.read_csv("data/raw/interactions_train.csv",usecols=["user_id", "recipe_id", "rating"])
+    val_raw = pd.read_csv("data/raw/interactions_validation.csv",usecols=["user_id", "recipe_id", "rating"])
+    test_raw = pd.read_csv("data/raw/interactions_test.csv",usecols=["user_id", "recipe_id", "rating"])
 
     # combine all data
     df = pd.concat([train_raw, val_raw, test_raw], ignore_index=True)
 
     # keep recipes i with n >= 10 
     item_i = (
-        df.value_counts("i")
+        df.value_counts("recipe_id")
         .reset_index(name="n")
         .query("n >= 10")
-        [["i"]]
+        [["recipe_id"]]
     )
-    first_filter = df.merge(item_i, on="i", how="inner")
+    first_filter = df.merge(item_i, on="recipe_id", how="inner")
 
     # keep users with >= 5 interactions
     user_u = (
-        first_filter.value_counts("u")
+        first_filter.value_counts("user_id")
         .reset_index(name="n")
         .query("n >= 5")
-        [["u"]]
+        [["user_id"]]
     )
-    second_filter = first_filter.merge(user_u, on="u", how="inner")
+    second_filter = first_filter.merge(user_u, on="user_id", how="inner")
 
     # shuffle ratings within users
     final_df = second_filter.copy()
     
     final_df = (
-        final_df.groupby("u")
+        final_df.groupby("user_id")
         .apply(lambda g: g.sample(frac=1,random_state=42).assign(idx=range(len(g))))
         .reset_index(drop=True)
     )
 
     # total ratings per user
-    final_df["total"] = final_df.groupby("u")["u"].transform("size")
+    final_df["total"] = final_df.groupby("user_id")["user_id"].transform("size")
     
 
     # split assignment
@@ -57,25 +57,24 @@ def preprocess_data():
     
     # new i mapping
     dict_i = (
-        final_df[["i"]].drop_duplicates().sort_values("i")
+        final_df[["recipe_id"]].drop_duplicates().sort_values("recipe_id")
         .reset_index(drop=True)
-        .assign(i_new=lambda x: x.index)
+        .assign(i=lambda x: x.index)
     )
 
     # new u mapping
     dict_u = (
-        final_df[["u"]].drop_duplicates().sort_values("u")
+        final_df[["user_id"]].drop_duplicates().sort_values("user_id")
         .reset_index(drop=True)
-        .assign(u_new=lambda x: x.index)
+        .assign(u=lambda x: x.index)
     )
 
     # join mappings
     final_df = (
         final_df
-        .merge(dict_i, on="i")
-        .merge(dict_u, on="u")
-        .drop(columns=["i", "u"])
-        .rename(columns={"i_new": "i", "u_new": "u"})
+        .drop(columns=["idx", "total"])
+        .merge(dict_i, on="recipe_id")
+        .merge(dict_u, on="user_id")
     )
 
     # final splits
@@ -84,11 +83,11 @@ def preprocess_data():
     test_df  = final_df.query('split == "3.test"').copy()
 
     # save preprocessed data
-    train_df.to_csv(os.path.join(DATA_DIR, "interactions_train.csv"))
-    val_df.to_csv(os.path.join(DATA_DIR, "interactions_validation.csv"))
-    test_df.to_csv(os.path.join(DATA_DIR, "interactions_test.csv"))
-    dict_i.to_csv(os.path.join(DATA_DIR, "dict_i.csv"))
-    dict_u.to_csv(os.path.join(DATA_DIR, "dict_u.csv"))
+    train_df.to_csv(os.path.join(DATA_DIR, "interactions_train.csv"),index=False)
+    val_df.to_csv(os.path.join(DATA_DIR, "interactions_validation.csv"),index=False)
+    test_df.to_csv(os.path.join(DATA_DIR, "interactions_test.csv"),index=False)
+    dict_i.to_csv(os.path.join(DATA_DIR, "dict_i.csv"),index=False)
+    dict_u.to_csv(os.path.join(DATA_DIR, "dict_u.csv"),index=False)
 
 
 def load_interactions(split):
