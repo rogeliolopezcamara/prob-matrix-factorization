@@ -34,7 +34,7 @@ def main():
 
     for k in grid:
         config = HPF_CAVI_Config(
-        n_factors=20,
+        n_factors=k,
         a=0.3,
         a_prime=1.0,
         b_prime=1.0,
